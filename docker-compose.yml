@@ -48,7 +48,7 @@ services:
     environment:
       <<: *app-env
     ports:
-      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:${WEB_PORT:-8080}:"
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     depends_on:
       db:
         condition: service_healthy
