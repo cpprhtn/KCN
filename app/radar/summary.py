@@ -1,6 +1,8 @@
 """Daily Korean briefing written by EXAONE (any OpenAI-compatible /chat/completions endpoint).
 
-Default target: FriendliAI serverless (https://api.friendli.ai/serverless/v1), where LG's EXAONE models are served.
+Default target: LG EXAONE API Platform (https://api.exaone.ai/v1, model k-exaone_v2.5). K-EXAONE 2.5 always
+reasons; reasoning comes back in message.reasoning_content and counts toward max_tokens.
+FriendliAI serverless (https://api.friendli.ai/serverless/v1) with older EXAONE models works too.
 A self-hosted vLLM/SGLang EXAONE works too: point EXAONE_BASE_URL at it (e.g. http://exaone:8000/v1).
 
 The model only sees the last ~2 days of collected data. Any CVE id it returns that was not in that input is dropped,
@@ -156,8 +158,10 @@ def _call(prompt):
         "top_p": 0.95,
         "stream": False,
     }
-    if not config.EXAONE_THINKING:
-        body["chat_template_kwargs"] = {"enable_thinking": False}
+    if config.EXAONE_REASONING_EFFORT:
+        body["reasoning_effort"] = config.EXAONE_REASONING_EFFORT   # K-EXAONE 2.5: thinking can't be disabled
+    elif not config.EXAONE_THINKING:
+        body["chat_template_kwargs"] = {"enable_thinking": False}  # older EXAONE on vLLM/SGLang/Friendli
     data = json.dumps(body).encode("utf-8")
     url = config.EXAONE_BASE_URL.rstrip("/") + "/chat/completions"
     last = None
@@ -167,9 +171,13 @@ def _call(prompt):
         try:
             with urllib.request.urlopen(req, timeout=config.SUMMARY_TIMEOUT) as r:
                 res = json.loads(r.read())
-            msg = (res.get("choices") or [{}])[0].get("message") or {}
+            choice = (res.get("choices") or [{}])[0]
+            msg = choice.get("message") or {}
             text = msg.get("content") or ""
             if not text.strip():
+                if choice.get("finish_reason") == "length":
+                    raise RuntimeError("추론 중 max_tokens 소진 — SUMMARY_MAX_TOKENS를 늘리거나 "
+                                       "EXAONE_REASONING_EFFORT를 낮추세요")
                 raise RuntimeError("빈 응답: " + json.dumps(res, ensure_ascii=False)[:300])
             return text
         except urllib.error.HTTPError as e:

@@ -79,10 +79,11 @@ services:
       KISA_PAGES: ${KISA_PAGES:-3}
       SEED_DIR: /seed
       EXAONE_API_KEY: ${EXAONE_API_KEY:-}
-      EXAONE_BASE_URL: ${EXAONE_BASE_URL:-https://api.friendli.ai/serverless/v1}
-      EXAONE_MODEL: ${EXAONE_MODEL:-LGAI-EXAONE/K-EXAONE-236B-A23B}
+      EXAONE_BASE_URL: ${EXAONE_BASE_URL:-https://api.exaone.ai/v1}
+      EXAONE_MODEL: ${EXAONE_MODEL:-k-exaone_v2.5}
       EXAONE_THINKING: ${EXAONE_THINKING:-false}
-      SUMMARY_MAX_TOKENS: ${SUMMARY_MAX_TOKENS:-1500}
+      EXAONE_REASONING_EFFORT: ${EXAONE_REASONING_EFFORT-low}
+      SUMMARY_MAX_TOKENS: ${SUMMARY_MAX_TOKENS:-8000}
     volumes:
       - ./seed:/seed:ro
     depends_on:

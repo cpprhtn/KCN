@@ -39,14 +39,16 @@ TRANSLATE_MAX_CHARS = _int("TRANSLATE_MAX_CHARS", 420)
 TRANSLATE_ARCHIVE = _bool("TRANSLATE_ARCHIVE", True)                # 15-90 day Critical too
 TRANSLATE_PACKAGES = _bool("TRANSLATE_PACKAGES", True)              # GitHub advisory summaries
 
-# Daily summary by EXAONE (OpenAI-compatible endpoint; default FriendliAI serverless)
+# Daily summary by EXAONE (OpenAI-compatible endpoint; default LG EXAONE API Platform, K-EXAONE 2.5)
 EXAONE_API_KEY = os.environ.get("EXAONE_API_KEY", "")
-EXAONE_BASE_URL = os.environ.get("EXAONE_BASE_URL", "https://api.friendli.ai/serverless/v1")
-EXAONE_MODEL = os.environ.get("EXAONE_MODEL", "LGAI-EXAONE/K-EXAONE-236B-A23B")
-EXAONE_THINKING = _bool("EXAONE_THINKING", False)
+EXAONE_BASE_URL = os.environ.get("EXAONE_BASE_URL", "https://api.exaone.ai/v1")
+EXAONE_MODEL = os.environ.get("EXAONE_MODEL", "k-exaone_v2.5")
+EXAONE_THINKING = _bool("EXAONE_THINKING", False)          # older EXAONE only (enable_thinking switch)
+# K-EXAONE 2.5 always reasons; this sets how much (low|high|max, API default max). Empty = not sent.
+EXAONE_REASONING_EFFORT = os.environ.get("EXAONE_REASONING_EFFORT", "low").strip().lower()
 SUMMARY_ENABLED = _bool("SUMMARY_ENABLED", True)
-SUMMARY_MAX_TOKENS = _int("SUMMARY_MAX_TOKENS", 1500)
-SUMMARY_TIMEOUT = _int("SUMMARY_TIMEOUT", 180)
+SUMMARY_MAX_TOKENS = _int("SUMMARY_MAX_TOKENS", 8000)   # includes reasoning tokens
+SUMMARY_TIMEOUT = _int("SUMMARY_TIMEOUT", 300)
 
 # KISA (boho.or.kr) list pages to read each run (10 posts per page)
 KISA_PAGES = max(1, _int("KISA_PAGES", 3))

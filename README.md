@@ -58,7 +58,9 @@ docker compose logs -f worker
 
 `.env`에 `EXAONE_API_KEY`를 넣으면 매일 수집이 끝난 직후 "오늘" 화면에 요약 카드가 생깁니다.
 
-- 기본 연결 대상은 FriendliAI 서버리스(`https://api.friendli.ai/serverless/v1`, OpenAI 호환 `/chat/completions`)입니다. 모델 이름은 콘솔에 보이는 값으로 `EXAONE_MODEL`을 맞추세요(기본 `LGAI-EXAONE/K-EXAONE-236B-A23B`).
+- 기본 연결 대상은 LG AI연구원 EXAONE API 플랫폼의 K-EXAONE 2.5(`https://api.exaone.ai/v1`, 모델 `k-exaone_v2.5`, OpenAI 호환 `/chat/completions`)입니다. 키는 [docs.exaone.ai](https://docs.exaone.ai)에서 발급합니다.
+- K-EXAONE 2.5는 추론을 끌 수 없고 `EXAONE_REASONING_EFFORT`(`low`/`high`/`max`, 기본 `low`)로 양만 조절합니다. 추론 토큰도 `SUMMARY_MAX_TOKENS`(기본 8000)에 포함됩니다.
+- FriendliAI 서버리스의 이전 모델도 됩니다: `EXAONE_BASE_URL=https://api.friendli.ai/serverless/v1`, `EXAONE_MODEL=LGAI-EXAONE/K-EXAONE-236B-A23B`, `EXAONE_REASONING_EFFORT=`(비움).
 - 직접 띄운 EXAONE(vLLM/SGLang)도 됩니다: `EXAONE_BASE_URL=http://<호스트>:8000/v1`.
 - 모델에는 최근 2일치 수집 결과(새 KEV, 악용 새로 확인, 원격·무인증 + PoC Critical, 주요 벤더 업데이트, KISA 권고)만 보냅니다. 모델이 입력에 없던 CVE 번호를 쓰면 화면에 나오기 전에 지웁니다.
 - 실패하면 이전 요약이 그대로 남고, 카드에 작성 날짜가 함께 보입니다. 실패 사유는 `radar status` 또는 `/api/status`에서 확인합니다.
