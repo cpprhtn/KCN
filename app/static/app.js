@@ -4,10 +4,8 @@
     get: function(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
     set: function(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
   };
-  // No default list: each viewer starts empty. A list identical to the old example default is treated as never set.
-  var OLD_DEFAULT = "Windows|Chrome|Android|Samsung|Apple|Microsoft Office|7-Zip|WinRAR|Synology|ipTIME|Fortinet|Ivanti";
-  var watch = LS.get("radar.watch", []);
-  if(!Array.isArray(watch) || watch.join("|") === OLD_DEFAULT || watch.join("|") === OLD_DEFAULT.split("|").slice(0,10).join("|")) watch = [];
+  // This server edition shows everything; there is no per-viewer product list.
+  var watch = [];
   var done = LS.get("radar.done", {});
   var state = {
     view:"insights", scope:(watch.length ? "mine" : "all"), q:"", hideDone:false, sort:"risk",
@@ -16,7 +14,7 @@
     cf:{rce:false, sig:false, edge:false, auto:false}
   };
   var data = { pkg:{ghsa:[], mal:[]}, meta:null, ins:null, kev:[], critical:[], kisa:[], ko:{}, changes:[], updates:[], archiveLoaded:false };
-  var REPORT_URL = "https://claude.ai/artifact/4rVFoxUmCv7ygokqLY3Qdc";
+  var REPORT_URL = location.origin + location.pathname;
   var CWE = {"CWE-78":"OS 명령어 삽입","CWE-77":"명령어 삽입","CWE-94":"코드 삽입","CWE-22":"경로 조작","CWE-23":"경로 조작","CWE-287":"부적절한 인증","CWE-306":"인증 누락","CWE-288":"대체 경로 인증 우회","CWE-290":"스푸핑 인증 우회","CWE-502":"역직렬화","CWE-416":"해제 후 사용(UAF)","CWE-787":"범위 밖 쓰기","CWE-125":"범위 밖 읽기","CWE-89":"SQL 삽입","CWE-79":"XSS","CWE-434":"위험한 파일 업로드","CWE-20":"입력 검증 미흡","CWE-269":"권한 관리 오류","CWE-862":"권한 확인 누락","CWE-863":"잘못된 권한 확인","CWE-918":"SSRF","CWE-798":"하드코딩된 자격증명","CWE-843":"타입 혼동","CWE-122":"힙 오버플로","CWE-121":"스택 오버플로","CWE-120":"버퍼 오버플로","CWE-119":"메모리 경계 오류","CWE-352":"CSRF","CWE-611":"XXE","CWE-639":"권한 없는 객체 접근(IDOR)","CWE-284":"접근 제어 미흡","CWE-276":"잘못된 기본 권한","CWE-200":"정보 노출","CWE-1321":"프로토타입 오염","CWE-74":"삽입(Injection)","CWE-917":"표현식 언어 삽입","CWE-400":"리소스 고갈","CWE-190":"정수 오버플로","CWE-59":"링크 추적","CWE-427":"검색 경로 조작","CWE-345":"진위 검증 미흡","CWE-693":"보호 기능 실패","CWE-1336":"템플릿 삽입","CWE-732":"잘못된 권한 설정","CWE-770":"무제한 리소스 할당","CWE-401":"메모리 누수","CWE-476":"NULL 역참조","CWE-305":"주요 약점 인증 우회","CWE-912":"숨겨진 기능","CWE-15":"외부 설정 제어","CWE-668":"잘못된 영역 노출","CWE-284 ":"접근 제어 미흡"};
   function cweName(c){ return CWE[c] ? c + " " + CWE[c] : c; }
 
@@ -149,86 +147,6 @@
     matchers.forEach(function(m){ if(m.re.test(hay)) out.push(m.label); });
     return out;
   }
-  function renderChips(){
-    var box = document.getElementById("chips"); box.textContent = "";
-    if(!watch.length) box.appendChild(el("span","muted small","등록된 제품 없음. 벤더·제품명을 넣으면 내 제품만 골라 볼 수 있습니다."));
-    document.getElementById("resetWatch").hidden = !watch.length;
-    watch.forEach(function(w, i){
-      var c = el("span","chip"); c.appendChild(el("span",null,w));
-      var al = ALIAS[w.toLowerCase()]; if(al) c.title = "함께 찾는 이름: " + al.map(function(x){ return x.charAt(0) === "@" ? "리눅스 커널" : x; }).join(", ");
-      var b = el("button",null,"×"); b.type = "button"; b.setAttribute("aria-label", w + " 삭제");
-      b.addEventListener("click", function(){ watch.splice(i,1); saveWatch(); });
-      c.appendChild(b); box.appendChild(c);
-    });
-  }
-  var PRESETS = ["Next.js","React","Node.js","Express","Django","Laravel","WordPress","Docker","Redis","PostgreSQL","nginx","Windows","Chrome","Synology","ipTIME","Fortinet"];
-  function renderPresets(){
-    var box = document.getElementById("presets"), wrap = document.getElementById("presetWrap"); box.textContent = "";
-    var have = watch.map(function(w){ return w.toLowerCase(); });
-    var left = PRESETS.filter(function(p){ return have.indexOf(p.toLowerCase()) < 0; });
-    wrap.hidden = !left.length;
-    document.getElementById("presetSum").textContent = watch.length ? "추천 스택 더 추가" : "자주 쓰는 스택을 눌러 추가";
-    left.forEach(function(p){
-      var b = el("button","fchip","+ " + p); b.type = "button";
-      b.addEventListener("click", function(){ if(watch.indexOf(p) < 0) watch.push(p); saveWatch(); }); box.appendChild(b);
-    });
-  }
-  function parseDeps(text){
-    var names = [];
-    try{
-      var j = JSON.parse(text);
-      if(j && typeof j === "object"){
-        ["dependencies","devDependencies","peerDependencies","optionalDependencies"].forEach(function(k){ if(j[k] && typeof j[k] === "object") Object.keys(j[k]).forEach(function(n){ names.push(n); }); });
-        if(names.length) return names;
-      }
-    }catch(e){}
-    text.split(/\r?\n/).forEach(function(line){
-      line = line.replace(/#.*$/, "").trim(); if(!line || line.charAt(0) === "-") return;
-      var m = line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)/); if(m) names.push(m[1]);
-    });
-    return names;
-  }
-  document.getElementById("pasteBtn").addEventListener("click", function(){
-    var msg = document.getElementById("pasteMsg"), raw = document.getElementById("pasteBox").value, added = 0, dup = 0, seen = {};
-    var names = parseDeps(raw).map(function(n){ return n.replace(/^@/, ""); }).filter(function(n){ return /^[A-Za-z0-9][A-Za-z0-9._\/-]{1,59}$/.test(n) && !/^types\//.test(n); });
-    if(!names.length){ msg.textContent = "패키지 이름을 찾지 못했습니다. package.json 또는 requirements.txt 내용을 그대로 붙여넣어 주세요."; return; }
-    var have = watch.map(function(w){ return w.toLowerCase(); });
-    names.forEach(function(n){
-      var k = n.toLowerCase(); if(seen[k]) return; seen[k] = 1;
-      if(have.indexOf(k) >= 0){ dup++; return; }
-      if(added >= 80) return; watch.push(n); have.push(k); added++;
-    });
-    msg.textContent = added + "개 등록" + (dup ? " (이미 있는 " + dup + "개 제외)" : "") + (Object.keys(seen).length > 80 ? " · 한 번에 80개까지만 넣습니다" : "");
-    document.getElementById("pasteBox").value = "";
-    saveWatch();
-  });
-  function saveWatch(){
-    LS.set("radar.watch", watch); buildMatchers(); renderChips(); renderPresets();
-    if(!watch.length) document.getElementById("presetWrap").open = true;
-    // With no registered products "내 제품만" would always be empty, so every list falls back to "전체".
-    if(!watch.length){
-      state.scope = "all"; updState.scope = "all"; kisaState.scope = "all"; pkgState.scope = "all";
-      document.querySelectorAll("[data-scope]").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.scope === "all")); });
-    }
-    if(data.meta) renderAll();
-  }
-  document.getElementById("addForm").addEventListener("submit", function(e){
-    e.preventDefault(); var inp = document.getElementById("addInput");
-    inp.value.split(",").forEach(function(v){ v = v.trim(); if(v && watch.indexOf(v) < 0) watch.push(v); });
-    inp.value = ""; saveWatch();
-  });
-  var resetArmed = null;
-  document.getElementById("resetWatch").addEventListener("click", function(){
-    var b = this;
-    if(!resetArmed){
-      b.textContent = "한 번 더 누르면 모두 지워져요";
-      resetArmed = setTimeout(function(){ resetArmed = null; b.textContent = "전체 지우기"; }, 3000);
-      return;
-    }
-    clearTimeout(resetArmed); resetArmed = null; b.textContent = "전체 지우기";
-    watch = []; saveWatch();
-  });
-
   // ---------- signals
   function isRce(it){ return it.av === "N" && it.pr === "N" && (it.ui === "N" || !it.ui); }
   function hasSig(it){ return it.kev || it.exploitation === "active" || it.exploitation === "poc" || it.exploitation === "public poc"; }
@@ -298,7 +216,7 @@
   function refreshFilters(){
     FSECS.forEach(function(id){
       var sec = document.getElementById(id), b = sec && sec.querySelector(".fbtn"); if(!b) return;
-      var parts = []; sec.querySelectorAll(".toolbar .seg [aria-pressed='true']").forEach(function(x){ parts.push(x.textContent); });
+      var parts = []; sec.querySelectorAll(".toolbar .seg:not([hidden]) [aria-pressed='true']").forEach(function(x){ parts.push(x.textContent); });
       var open = !sec.classList.contains("fcollapsed");
       b.textContent = "필터" + (parts.length ? " · " + parts.join(" · ") : "") + (open ? "  ▴" : "  ▾");
       b.setAttribute("aria-expanded", String(open));
@@ -385,54 +303,73 @@
     });
   }
 
+  function enLead(it){
+    // Kernel records all open with the same boilerplate; the patch subject line says more.
+    return (it.summary || it.name || "").replace(/^In the Linux kernel, the following vulnerability has been resolved:\s*/i, "").split("\n")[0];
+  }
   function itemNode(it, kind){
-    var li = el("li","item"); if(done[it.id]) li.classList.add("done");
+    var li = el("li","item " + (kind === "kev" ? "is-kev" : "is-crit")); if(done[it.id]) li.classList.add("done");
     var sc = el("div","score " + (kind === "kev" ? "kev" : "crit"));
-    if(kind === "kev"){ sc.appendChild(el("b", null, "KEV")); sc.appendChild(el("span", null, it.score != null ? "CVSS " + Number(it.score).toFixed(1) : "점수 없음")); }
-    else { sc.appendChild(el("b", null, Number(it.score).toFixed(1))); sc.appendChild(el("span", null, "CVSS " + (it.cvssVersion || ""))); }
+    if(kind === "kev"){ sc.appendChild(el("b", null, "악용")); sc.appendChild(el("span", null, it.score != null ? "CVSS " + Number(it.score).toFixed(1) : "점수 없음")); }
+    else { sc.appendChild(el("b", null, Number(it.score).toFixed(1))); sc.appendChild(el("span", null, "CVSS")); }
     li.appendChild(sc);
 
     var body = el("div","body"), l1 = el("div","line1");
-    l1.appendChild(cveLink(it.id));
-    l1.appendChild(el("span","prod", [it.vendor, it.product].filter(Boolean).join(" · ")));
+    l1.appendChild(el("span","prod", [it.vendor, it.product].filter(function(x){ return x && x !== "n/a"; }).join(" · ") || it.id));
     l1.appendChild(el("span","date", kind === "kev" ? "등재 " + it.added : "공개 " + it.published));
     body.appendChild(l1);
-    var ko = koOf(it.id); if(ko) body.appendChild(el("div","ko", ko));
 
+    // one sentence: Korean when we have it, otherwise the English lead
+    var ko = koOf(it.id), en = enLead(it);
+    var lead = el("p", ko ? "ko" : "ko-en", ko || en); if(ko && en) lead.title = en; body.appendChild(lead);
+
+    // only the signals that change what you do
     var bd = el("div","badges");
     if(it._hits.length) bd.appendChild(el("span","b mine", "내 제품: " + it._hits.join(", ")));
     if(kind === "kev"){
-      if(it.ransomware === "Known") bd.appendChild(el("span","b rw","랜섬웨어 사용 확인"));
-      if(it.forensic) bd.appendChild(el("span","b rw","침해 흔적 점검 필요 (CISA)"));
-      var lt = lagText(it.lagDays); if(lt) bd.appendChild(el("span", "b " + (it.lagDays <= 7 ? "kev" : "plain"), lt));
-      if(it.edge) bd.appendChild(el("span","b poc","경계 장비"));
-      if(it.cwes && it.cwes[0]) bd.appendChild(el("span","b plain", cweName(it.cwes[0])));
-      bd.appendChild(el("span","b plain","미 연방 조치기한 " + it.due));
+      if(it.ransomware === "Known") bd.appendChild(el("span","b rw","랜섬웨어에 쓰임"));
+      if(it.forensic) bd.appendChild(el("span","b rw","침해 흔적도 점검"));
+      if(it.lagDays != null && it.lagDays <= 7) bd.appendChild(el("span","b kev", lagText(it.lagDays)));
     } else {
-      if(it.kev) bd.appendChild(el("span","b kev","KEV 등재"));
-      if(it.exploitation === "active") bd.appendChild(el("span","b rw","악용 확인 (SSVC)"));
-      else if(it.exploitation === "poc" || it.exploitation === "public poc") bd.appendChild(el("span","b poc","PoC 공개 (SSVC)"));
-      if(isRce(it)) bd.appendChild(el("span","b plain","원격·무인증·무조작"));
-      if(it.automatable === "yes") bd.appendChild(el("span","b plain","자동화 가능"));
-      if(it.edge) bd.appendChild(el("span","b poc","경계 장비"));
-      if(it.cwe) bd.appendChild(el("span","b plain", cweName(it.cwe)));
-      if(it.scoreSource && it.scoreSource !== "CNA") bd.appendChild(el("span","b plain","점수: " + it.scoreSource.replace("ADP:", "")));
+      if(it.kev) bd.appendChild(el("span","b rw","실제 악용"));
+      else if(it.exploitation === "active") bd.appendChild(el("span","b rw","악용 확인"));
+      else if(it.exploitation === "poc" || it.exploitation === "public poc") bd.appendChild(el("span","b poc","PoC 공개"));
+      if(isRce(it)) bd.appendChild(el("span","b plain","인증 없이 원격"));
     }
-    body.appendChild(bd);
-    if(kind === "kev" && it.name) body.appendChild(el("div","prod small", it.name));
-    body.appendChild(el("div","desc", it.summary || ""));
+    if(it.edge) bd.appendChild(el("span","b plain","경계 장비"));
+    if(bd.childNodes.length) body.appendChild(bd);
     var an = actionNode(it); if(an) body.appendChild(an);
-    if(kind === "critical" && it.vector) body.appendChild(el("div","small muted mono", it.vector));
 
-    var f = el("div","foot");
-    f.appendChild(link("https://nvd.nist.gov/vuln/detail/" + encodeURIComponent(it.id), "NVD"));
-    f.appendChild(link("https://api.first.org/data/v1/epss?cve=" + encodeURIComponent(it.id), "EPSS 점수"));
-    f.appendChild(link("https://osv.dev/vulnerability/" + encodeURIComponent(it.id), "OSV"));
-    f.appendChild(link("https://euvd.enisa.europa.eu/search?text=" + encodeURIComponent(it.id), "EUVD"));
-    f.appendChild(link("https://github.com/search?type=code&q=" + encodeURIComponent(it.id), "GitHub PoC 검색"));
-    if(!(it.refs && it.refs.length)) f.appendChild(link("https://www.google.com/search?q=" + encodeURIComponent(it.id + " " + (it.vendor || "") + " advisory"), "벤더 공지 찾기"));
+    // everything else: original text and detail, folded
+    var det = el("details","orig"), sm = el("summary"); sm.appendChild(el("span","mono cid", it.id)); sm.appendChild(document.createTextNode(" 원문·세부 정보")); det.appendChild(sm);
+    var dw = el("div","orig-body");
+    if(kind === "kev" && it.name) dw.appendChild(el("div","prod small", it.name));
+    if(it.summary && (ko || it.summary !== en)) dw.appendChild(el("p","desc", it.summary));
+    var meta = el("div","badges");
+    if(kind === "kev"){
+      var lt = lagText(it.lagDays); if(lt && !(it.lagDays <= 7)) meta.appendChild(el("span","b plain", lt));
+      if(it.cwes && it.cwes[0]) meta.appendChild(el("span","b plain", cweName(it.cwes[0])));
+      if(it.due) meta.appendChild(el("span","b plain","미 연방기관 조치기한 " + it.due));
+    } else {
+      if(it.automatable === "yes") meta.appendChild(el("span","b plain","공격 자동화 가능"));
+      if(it.cwe) meta.appendChild(el("span","b plain", cweName(it.cwe)));
+      if(it.scoreSource && it.scoreSource !== "CNA") meta.appendChild(el("span","b plain","점수 출처: " + it.scoreSource.replace("ADP:", "")));
+    }
+    if(meta.childNodes.length) dw.appendChild(meta);
+    if(kind === "critical" && it.vector) dw.appendChild(el("div","small muted mono vec", it.vector));
+    var refs = el("div","foot");
+    refs.appendChild(link("https://www.cve.org/CVERecord?id=" + encodeURIComponent(it.id), "CVE 레코드"));
+    refs.appendChild(link("https://nvd.nist.gov/vuln/detail/" + encodeURIComponent(it.id), "NVD"));
+    refs.appendChild(link("https://api.first.org/data/v1/epss?cve=" + encodeURIComponent(it.id), "EPSS 점수"));
+    refs.appendChild(link("https://osv.dev/vulnerability/" + encodeURIComponent(it.id), "OSV"));
+    refs.appendChild(link("https://euvd.enisa.europa.eu/search?text=" + encodeURIComponent(it.id), "EUVD"));
+    refs.appendChild(link("https://github.com/search?type=code&q=" + encodeURIComponent(it.id), "GitHub PoC 검색"));
+    dw.appendChild(refs); det.appendChild(dw);
+
+    var f = el("div","foot item-foot"); f.appendChild(det);
+    if(!(it.refs && it.refs.length)) f.appendChild(link("https://www.google.com/search?q=" + encodeURIComponent(it.id + " " + (it.vendor || "") + " advisory"), "벤더 공지 찾기 ↗"));
     var lab = el("label","tog"), cb = el("input"); cb.type = "checkbox"; cb.id = "done-" + it.id; cb.checked = !!done[it.id];
-    cb.addEventListener("change", function(){ if(cb.checked) done[it.id] = Date.now(); else delete done[it.id]; LS.set("radar.done", done); li.classList.toggle("done", cb.checked); if(state.hideDone) renderList(); });
+    cb.addEventListener("change", function(){ if(cb.checked) done[it.id] = Date.now(); else delete done[it.id]; LS.set("radar.done", done); li.classList.toggle("done", cb.checked); renderVerdict(); if(state.hideDone) renderList(); });
     lab.appendChild(cb); lab.appendChild(document.createTextNode("확인함"));
     f.appendChild(lab); body.appendChild(f);
     li.appendChild(body);
@@ -444,6 +381,8 @@
     if(state.view !== "kev" && state.view !== "critical") return;
     renderToolbar();
     var kind = state.view, list = document.getElementById("list"); list.textContent = "";
+    document.getElementById("listTitle").textContent = kind === "kev" ? "실제 악용" : "고위험 신규";
+    document.getElementById("listTitleDesc").textContent = kind === "kev" ? "미국 CISA가 실제 공격에 쓰였다고 확인한 취약점입니다." : "최근 공개된 CVSS 9.0 이상 취약점입니다. 악용 신호가 있는 것부터 보여 줍니다.";
     if(!data.meta){ list.appendChild(el("li","empty", loadMsg)); document.getElementById("moreWrap").hidden = true; return; }
     var arr = filtered(kind); current = arr;
     var total = (kind === "kev" ? data.kev : data.critical).filter(function(it){ return (kind === "kev" ? it.added : it.published) >= daysAgo(state.range[kind]); }).length;
@@ -469,10 +408,17 @@
   var downloadsP = null;
   document.getElementById("csvBtn").addEventListener("click", function(){
     var btn = this, kind = state.view;
-    if(!downloadsP) return;
+    var name = (kind === "kev" ? "kev" : "critical") + "-" + new Date().toISOString().slice(0,10) + ".csv";
+    if(!downloadsP){
+      // self-hosted: plain browser download
+      var url = URL.createObjectURL(new Blob([buildCsv(kind, current)], { type:"text/csv;charset=utf-8" }));
+      var a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      btn.textContent = "저장함"; setTimeout(function(){ btn.textContent = "CSV 내보내기"; }, 2000);
+      return;
+    }
     downloadsP.then(function(dl){
       if(!dl) return;
-      var name = (kind === "kev" ? "kev" : "critical") + "-" + new Date().toISOString().slice(0,10) + ".csv";
       return dl.save({ filename:name, data:buildCsv(kind, current) }).then(function(){ btn.textContent = "저장함"; setTimeout(function(){ btn.textContent = "CSV 내보내기"; }, 2000); });
     }).catch(function(e){
       if(e && e.code === "declined") return;
@@ -722,21 +668,36 @@
   function renderVerdict(){
     if(!document.getElementById("vHead")) return;
     var head = document.getElementById("vHead"), sub = document.getElementById("vSub"), list = document.getElementById("vList");
-    list.textContent = ""; verdictItems = [];
+    list.textContent = ""; verdictItems = []; sub.textContent = "";
     head.className = "v-head";
     if(!data.meta){ head.textContent = loadMsg; sub.textContent = ""; return; }
     var gen = new Date(data.meta.generatedAt);
-    document.getElementById("vDate").textContent = "오늘의 판정 · " + gen.toLocaleDateString("ko-KR", {month:"long", day:"numeric", weekday:"short"}) + " 데이터 기준";
+    document.getElementById("vDate").textContent = "오늘의 판정 · " + gen.toLocaleDateString("ko-KR", {month:"long", day:"numeric", weekday:"short"});
     var from7 = daysAgo(7), from14 = daysAgo(14), from30 = daysAgo(30);
     if(!watch.length){
-      head.textContent = "전체 기준 긴급 항목";
-      sub.textContent = "제품을 등록하면 내 제품 기준으로 판정됩니다.";
-      var k7 = data.kev.filter(function(v){ return v.added >= from7; }).sort(function(a, b){ return riskScore(b,"kev") - riskScore(a,"kev"); }).slice(0, 3);
-      var shownIds = k7.map(function(x){ return x.id; });
-      var hot = data.critical.filter(function(c){ return c.published >= from14 && isRce(c) && hasSig(c) && !c.kev && shownIds.indexOf(c.id) < 0; }).sort(function(a, b){ return riskScore(b,"critical") - riskScore(a,"critical"); }).slice(0, 2);
-      k7.forEach(function(it){ verdictItems.push(["KEV", it, "kev"]); vRow(list, "p1", "KEV", it, "kev"); });
-      hot.forEach(function(it){ verdictItems.push(["주목", it, "critical"]); vRow(list, "p2", "주목", it, "critical"); });
-      verdictHead = "전체 기준 주목 항목 " + (k7.length + hot.length) + "건 (내 제품 미등록)";
+      var k7 = data.kev.filter(function(v){ return v.added >= from7 && !done[v.id]; }).sort(function(a, b){ return riskScore(b,"kev") - riskScore(a,"kev"); });
+      var k7ids = k7.map(function(x){ return x.id; });
+      var hot = data.critical.filter(function(c){ return c.published >= from14 && isRce(c) && hasSig(c) && !c.kev && !done[c.id] && k7ids.indexOf(c.id) < 0; }).sort(function(a, b){ return riskScore(b,"critical") - riskScore(a,"critical"); });
+      var edgeN = k7.filter(function(v){ return v.edge; }).length;
+      if(!k7.length && !hot.length){
+        head.textContent = "지난 7일 새로 확인된 실제 악용이 없습니다"; head.classList.add("ok");
+        sub.textContent = "고위험 신규 목록은 왼쪽 메뉴에서 볼 수 있습니다."; verdictHead = head.textContent; return;
+      }
+      head.textContent = k7.length ? "지난 7일 실제 악용 " + k7.length + "건이 새로 확인됐습니다" : "즉시 위험한 고위험 취약점 " + hot.length + "건";
+      head.classList.add(k7.length ? "p1" : "p2");
+      sub.textContent = [k7.length && edgeN ? "그중 VPN·방화벽 같은 경계 장비 " + edgeN + "건" : "",
+                         hot.length && k7.length ? "최근 2주 고위험 중 인증 없이 원격 + 공격 코드 공개 " + hot.length + "건" : "",
+                         "처리했으면 각 항목의 ‘확인함’을 누르세요"].filter(Boolean).join(" · ");
+      verdictHead = head.textContent;
+      var shownG = 0, MAXG = 4, moreG = null, moreGS = null, moreGN = 0;
+      function addG(pc, pt, it, kind){
+        verdictItems.push([pt, it, kind]);
+        if(shownG < MAXG){ shownG++; vRow(list, pc, pt, it, kind); return; }
+        if(!moreG){ var mli = el("li","v-old"), md = el("details"); moreGS = el("summary"); md.appendChild(moreGS); moreG = el("ul","v-list"); md.appendChild(moreG); mli.appendChild(md); list.appendChild(mli); }
+        moreGN++; vRow(moreG, pc, pt, it, kind); moreGS.textContent = moreGN + "건 더 보기";
+      }
+      k7.slice(0, 20).forEach(function(it){ addG("p1", "실제 악용", it, "kev"); });
+      hot.slice(0, 8).forEach(function(it){ addG("p2", "즉시 위험", it, "critical"); });
       return;
     }
     var from90 = daysAgo(90);
@@ -752,25 +713,40 @@
     var p2n = grpNew.length + critNew.length + kisa.length, oldN = grpOld.length + critOld.length;
     var scope = "등록한 제품 " + watch.length + "개 기준";
     if(!p1.length && !p2n && !oldN){
-      head.textContent = "오늘 내 제품 기준 처리할 일 없음";
-      head.classList.add("ok"); sub.textContent = scope; verdictHead = head.textContent;
+      head.textContent = "오늘은 처리할 일이 없습니다";
+      head.classList.add("ok"); sub.textContent = scope + " · 실제 악용·급한 업데이트 없음"; verdictHead = head.textContent;
       return;
     }
-    head.textContent = (p1.length || p2n) ? "오늘 처리 P1 " + p1.length + "건 · 이번 주 확인 P2 " + p2n + "건" + (oldN ? " · 놓친 업데이트 " + oldN + "건" : "")
-                                          : "새 항목은 없고, 아직 확인 안 한 이전 업데이트가 " + oldN + "건 있습니다";
-    head.classList.add(p1.length ? "p1" : "p2"); sub.textContent = scope; verdictHead = head.textContent;
+    head.textContent = p1.length ? "오늘 처리할 것 " + p1.length + "건" + (p2n ? ", 이번 주에 볼 것 " + p2n + "건" : "")
+                     : p2n ? "이번 주에 확인할 것 " + p2n + "건"
+                     : "새 항목은 없고, 아직 확인 안 한 이전 업데이트가 " + oldN + "건 있습니다";
+    if((p1.length || p2n) && oldN) sub.textContent = "놓친 이전 업데이트 " + oldN + "건 포함 · ";
+    head.classList.add(p1.length ? "p1" : "p2"); sub.textContent = (sub.textContent || "") + scope + " · 처리했으면 각 항목의 ‘확인함’을 누르세요"; verdictHead = head.textContent;
     // New items first (up to 7), then up to 4 older updates that are still unchecked, so a missed patch never sinks out of view.
-    var shown = 0, MAX = 7, shownOld = 0, MAXOLD = 4, hidden = 0;
-    function add(pc, pt, it, kind){ if(shown++ < MAX){ verdictItems.push([pt, it, kind]); vRow(list, pc, pt, it, kind); } else hidden++; }
-    function addOld(it, kind){ if(shownOld++ < MAXOLD){ verdictItems.push(["이전", it, kind]); vRow(list, "", "이전", it, kind); } else hidden++; }
-    p1.sort(function(a, b){ return riskScore(b,"kev") - riskScore(a,"kev"); }).forEach(function(it){ add("p1", "P1", it, "kev"); });
-    grpNew.sort(function(a, b){ return (b.kev.length - a.kev.length) || (b.exploited.length - a.exploited.length) || (b.maxScore - a.maxScore); }).forEach(function(g){ add("p2", "P2", g, "update"); });
-    critNew.sort(function(a, b){ return riskScore(b,"critical") - riskScore(a,"critical"); }).forEach(function(it){ add("p2", "P2", it, "critical"); });
+    var shown = 0, MAX = 4, MAXMORE = 16, shownOld = 0, MAXOLD = 10, hidden = 0, oldBox = null, oldSum = null, moreBox = null, moreSum = null, moreN = 0;
+    function add(pc, pt, it, kind){
+      if(shown < MAX){ shown++; verdictItems.push([pt, it, kind]); vRow(list, pc, pt, it, kind); return; }
+      if(moreN >= MAXMORE){ hidden++; return; }
+      if(!moreBox){ var mli = el("li","v-old"), md = el("details"); moreSum = el("summary"); md.appendChild(moreSum); moreBox = el("ul","v-list"); md.appendChild(moreBox); mli.appendChild(md); list.appendChild(mli); }
+      moreN++; verdictItems.push([pt, it, kind]); vRow(moreBox, pc, pt, it, kind);
+      moreSum.textContent = "새 항목 " + moreN + "건 더 보기";
+    }
+    function addOld(it, kind){
+      if(shownOld++ >= MAXOLD){ hidden++; return; }
+      if(!oldBox){ var oli = el("li","v-old"), od = el("details"); oldSum = el("summary"); od.appendChild(oldSum); oldBox = el("ul","v-list"); od.appendChild(oldBox); oli.appendChild(od); list.appendChild(oli); }
+      verdictItems.push(["이전", it, kind]); vRow(oldBox, "", "놓친 것", it, kind);
+      oldSum.textContent = "아직 확인 안 한 이전 업데이트 " + shownOld + "건 보기";
+    }
+    p1.sort(function(a, b){ return riskScore(b,"kev") - riskScore(a,"kev"); }).forEach(function(it){ add("p1", "오늘 처리", it, "kev"); });
+    grpNew.sort(function(a, b){ return (b.kev.length - a.kev.length) || (b.exploited.length - a.exploited.length) || (b.maxScore - a.maxScore); }).forEach(function(g){ add("p2", "이번 주", g, "update"); });
+    critNew.sort(function(a, b){ return riskScore(b,"critical") - riskScore(a,"critical"); }).forEach(function(it){ add("p2", "이번 주", it, "critical"); });
     kisa.forEach(function(k){ add("p2", "KISA", k, "kisa"); });
     grpOld.sort(function(a, b){ return (b.kev.length - a.kev.length) || (b.maxScore - a.maxScore); }).forEach(function(g){ addOld(g, "update"); });
     critOld.forEach(function(it){ addOld(it, "critical"); });
-    if(hidden){ var more = el("li"); more.appendChild(el("span","pill","+" + hidden)); more.appendChild(el("span","small muted","나머지는 아래 탭의 '내 제품만'에서 확인.")); list.appendChild(more); }
+    if(hidden){ var more = el("li"); more.appendChild(el("span","pill","+" + hidden)); more.appendChild(el("span","small muted","나머지는 아래 목록에서 ‘내 제품만’을 눌러 확인하세요.")); list.appendChild(more); }
   }
+
+  function flash(btn, msg){ btn.dataset.flash = msg; clearTimeout(btn._ft); btn._ft = setTimeout(function(){ delete btn.dataset.flash; }, 2200); }
 
   // ---------- report text (copy)
   function reportText(){
@@ -804,11 +780,9 @@
   if(copyBtnEl) copyBtnEl.addEventListener("click", function(){
     var btn = this, text = reportText(); if(!text) return;
     var wrap = document.getElementById("copyFallbackWrap"), ta = document.getElementById("copyFallback");
-    function fallback(){ ta.value = text; wrap.hidden = false; ta.focus(); ta.select(); btn.textContent = "아래에서 복사하세요"; }
+    function fallback(){ ta.value = text; wrap.hidden = false; ta.focus(); ta.select(); flash(btn, "아래에서 복사하세요"); }
     try{
-      navigator.clipboard.writeText(text).then(function(){
-        wrap.hidden = true; btn.textContent = "복사했습니다"; setTimeout(function(){ btn.textContent = "보고용으로 복사"; }, 2000);
-      }, fallback);
+      navigator.clipboard.writeText(text).then(function(){ wrap.hidden = true; flash(btn, "복사했습니다"); }, fallback);
     }catch(e){ fallback(); }
   });
 
@@ -1013,7 +987,7 @@
         l1.appendChild(el("span","muted small", it.id));
       }
       l1.appendChild(el("span","date", it.pub)); body.appendChild(l1);
-      if(adv && it.s) body.appendChild(el("div","desc", it.s));
+      if(adv && (koOf(it.id) || it.s)){ var dsc = el("div","desc", koOf(it.id) || it.s); if(koOf(it.id) && it.s) dsc.title = it.s; body.appendChild(dsc); }
       var bd = el("div","badges");
       if(adv){
         if(it.kev) bd.appendChild(el("span","b kev","실제 악용 (KEV)"));
@@ -1066,11 +1040,12 @@
   function renderFresh(){
     var m = data.meta; if(!m) return;
     var t = new Date(m.generatedAt), hrs = (Date.now() - t.getTime()) / 36e5;
-    var s = t.toLocaleString("ko-KR", {year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit"});
-    document.getElementById("fresh").classList.toggle("stale", hrs > 36);
-    document.getElementById("freshText").textContent = (hrs > 36 ? "갱신 필요 · " : "최신 · ") + s;
-    var kisa = m.kisaStatus === "ok" ? "KISA 정상" : m.kisaFetchedAt ? "KISA 수집 실패 (마지막 성공 " + new Date(m.kisaFetchedAt).toLocaleDateString("ko-KR") + ")" : "KISA 미수집";
-    document.getElementById("freshSub").textContent = "KEV " + (m.kevCatalogVersion || "") + " · " + kisa;
+    var s = t.toLocaleString("ko-KR", {month:"long", day:"numeric", hour:"numeric", minute:"2-digit"});
+    var fr = document.getElementById("fresh"); fr.classList.toggle("stale", hrs > 36);
+    document.getElementById("freshText").textContent = s + " 기준" + (hrs > 36 ? " · 갱신이 " + Math.floor(hrs / 24) + "일째 멈춰 있습니다" : "");
+    var sub = document.getElementById("freshSub");
+    if(m.kisaStatus === "ok" || m.kisaStatus === "skipped"){ sub.textContent = ""; sub.hidden = true; }
+    else { sub.hidden = false; sub.textContent = "KISA 공지를 이번에 가져오지 못했습니다" + (m.kisaFetchedAt ? " (마지막 성공 " + new Date(m.kisaFetchedAt).toLocaleDateString("ko-KR", {month:"long", day:"numeric"}) + ")" : ""); }
   }
   function renderAll(){
     data.kev.forEach(function(it){ it._hits = hitsFor(it, "kev"); });
@@ -1149,7 +1124,7 @@
 
   // ---------- data
   var loadMsg = "불러오는 중…";
-  buildMatchers(); renderChips(); renderPresets();
+  buildMatchers();
   setView(location.hash.slice(1) || "brief", false);
   function failAll(msg){ loadMsg = msg; renderVerdict(); renderTimeline(); renderInsights(); renderList(); if(state.view === "kisa") renderKisa(); }
 
@@ -1178,9 +1153,57 @@
       data.archiveLoaded = true; renderAll();
     });
   }).catch(function(){
-    failAll("데이터 파일을 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.");
+    failAll("데이터를 불러오지 못했습니다. 서버를 처음 띄웠다면 첫 수집이 끝날 때까지(수 분~수십 분) 기다린 뒤 새로고침해 주세요.");
   });
+  // ---------- AI daily summary (EXAONE)
+  var LEVEL = { urgent:["지금","lv-urgent"], watch:["이번 주","lv-watch"], info:["참고","lv-info"] };
+  function renderSummary(sm){
+    var card = document.getElementById("aiCard");
+    if(!sm || sm.status !== "ok" || !sm.headline){ card.hidden = true; return; }
+    card.hidden = false;
+    var at = new Date(sm.generatedAt);
+    var stale = sm.date !== new Date().toLocaleDateString("sv-SE", { timeZone:"Asia/Seoul" });
+    document.getElementById("aiMeta").textContent = (stale ? sm.date + " 요약 · " : "") + at.toLocaleTimeString("ko-KR", {hour:"numeric", minute:"2-digit"}) + " 작성";
+    document.getElementById("aiHead").textContent = sm.headline;
+    var ul = document.getElementById("aiPoints"); ul.textContent = "";
+    (sm.points || []).forEach(function(pt){
+      var lv = LEVEL[pt.level] || LEVEL.info, li = el("li", lv[1]);
+      li.appendChild(el("span","lv", lv[0]));
+      var b = el("div","pt-body"); b.appendChild(el("strong", null, pt.title)); b.appendChild(el("p", null, pt.text));
+      if(pt.ids && pt.ids.length){ var ids = el("div","pt-ids"); pt.ids.forEach(function(i){ ids.appendChild(cveLink(i)); }); b.appendChild(ids); }
+      li.appendChild(b); ul.appendChild(li);
+    });
+    var aw = document.getElementById("aiActionsWrap"), al = document.getElementById("aiActions"); al.textContent = "";
+    aw.hidden = !(sm.actions && sm.actions.length);
+    (sm.actions || []).forEach(function(a){ al.appendChild(el("li", null, a)); });
+  }
+  optJson("summary", null).then(renderSummary);
+
+  // ---------- theme
+  (function(){
+    var btn = document.getElementById("themeBtn"), root = document.documentElement;
+    function cur(){ return root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
+    function paint(){ btn.querySelector("use").setAttribute("href", cur() === "dark" ? "#i-sun" : "#i-moon"); }
+    btn.addEventListener("click", function(){ root.dataset.theme = cur() === "dark" ? "light" : "dark"; LS.set("radar.theme", root.dataset.theme); paint(); });
+    paint();
+  })();
+
+  // ---------- top search: KEV first, then 90-day Critical
+  document.getElementById("topSearch").addEventListener("submit", function(e){
+    e.preventDefault();
+    var q = document.getElementById("topQ").value.trim().toLowerCase(); if(!q || !data.meta) return;
+    state.q = q; document.getElementById("q").value = q; state.scope = "all"; state.hideDone = false;
+    document.querySelectorAll("[data-scope]").forEach(function(x){ x.setAttribute("aria-pressed", String(x.dataset.scope === "all")); });
+    state.kf = {rw:false, edge:false, fast:false, old:false}; state.cf = {rce:false, sig:false, edge:false, auto:false};
+    state.range.kev = 90; state.range.critical = 90;
+    var hitK = filtered("kev").length;
+    setView(hitK ? "kev" : "critical", true);
+    document.getElementById("main").scrollIntoView({ block:"start" });
+  });
+
   if(window.claude && window.claude.use){
     downloadsP = window.claude.use("downloads").then(function(dl){ if(dl) document.getElementById("csvBtn").hidden = false; return dl; }).catch(function(){ return null; });
+  } else {
+    document.getElementById("csvBtn").hidden = false;
   }
 })();

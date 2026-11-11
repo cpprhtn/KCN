@@ -1,1 +1,149 @@
-Korea CVE Notification
+# 크리티컬 취약점 레이더 — 서버판 (Docker + PostgreSQL + LibreTranslate)
+
+아티팩트로 돌던 "크리티컬 취약점 레이더"를 자체 서버에 올리는 버전입니다.
+화면(HTML/JS/CSS)과 수집 로직은 원본과 같고, 바뀐 부분은 다음과 같습니다.
+
+| 원본 (아티팩트) | 서버판 |
+|---|---|
+| 상태를 `data/*.json` 파일로 보관 | **PostgreSQL** 테이블에 보관 |
+| 한국어 한 줄 요약을 사람이(Claude가) 작성 | **LibreTranslate**(en→ko) 기계 번역, 백그라운드 큐 |
+| KISA 공지를 외부에서 가져와 넘겨줌 | worker가 boho.or.kr 목록을 **직접 수집** |
+| 예약 작업으로 하루 한 번 | worker 컨테이너 안 cron (`COLLECT_CRON`) |
+| CSV는 아티팩트 다운로드 기능 | 브라우저 일반 다운로드 |
+
+## 구성
+
+```
+┌────────┐  /data/*.json   ┌─────┐
+│ 브라우저 │ ─────────────▶ │ web │ ──┐
+└────────┘                 └─────┘   │ snapshots 읽기
+                                     ▼
+                     ┌──────────────────────┐
+                     │  db (PostgreSQL 16)  │
+                     └──────────────────────┘
+                                     ▲ 상태·스냅샷·번역 쓰기
+┌──────────────────┐  /translate  ┌────────┐   CISA KEV, cvelistV5,
+│ libretranslate   │ ◀─────────── │ worker │ ─ GitHub Advisory, OpenSSF,
+│ (en,ko 모델)      │              └────────┘   KISA 보호나라
+└──────────────────┘
+```
+
+- **web**: FastAPI. `/`에 정적 페이지, `/data/<name>.json`은 DB의 `snapshots` 테이블에서 바로 내려줍니다(gzip·ETag 캐시).
+- **worker**: `COLLECT_CRON`마다 수집 → 스냅샷 갱신 → 번역 대기열 정리. 사이사이 번역 대기열을 LibreTranslate로 처리합니다.
+- **libretranslate**: 내부망 전용(포트 비공개). 첫 기동 때 en↔ko 모델을 받습니다.
+
+## 빠르게 시작
+
+```bash
+cp .env.example .env
+# POSTGRES_PASSWORD를 꼭 바꾸세요 (URL에 들어가므로 영문·숫자 권장)
+openssl rand -hex 24      # 예시 비밀번호
+
+docker compose up -d --build
+docker compose logs -f worker
+```
+
+브라우저에서 `http://<서버>:8080` 을 엽니다.
+
+### 첫 기동 때 일어나는 일
+
+1. **seed/** 폴더에 원본 아티팩트의 마지막 데이터가 들어 있습니다. DB가 비어 있으면 worker가 이걸 먼저 넣습니다.
+   - seed의 커서가 CVE deltaLog 보관 기간(약 30일) 안이면 **증분 수집**(1~2분)으로 바로 최신화됩니다.
+   - 30일이 지났거나 seed를 지우면 **전체 재구축**: 최근 90일치 일별 CVE 압축본을 받아 다시 만듭니다(네트워크에 따라 10~30분, 메모리 1GB 안팎).
+   - seed의 한국어 요약(약 400건, 사람이 쓴 문장)은 `seed` 엔진으로 들어가며 기계 번역이 덮어쓰지 않습니다. 전부 LibreTranslate로 바꾸고 싶으면 `ko-reset --seed`.
+2. **LibreTranslate**는 모델을 내려받는 동안 응답하지 않습니다. worker는 1분마다 확인하다가 준비되면 번역을 시작합니다.
+3. 번역 대기열은 처음에 수천 건(KEV 90일 → 최근 Critical → 제품 업데이트 → 패키지 권고 → 15~90일 Critical 순)입니다. CPU에 따라 첫 소진에 1~3시간 걸릴 수 있고, 그동안 페이지는 영문 원문/한국어 템플릿 문장으로 보입니다. 이후에는 하루 수십~수백 건만 새로 번역합니다.
+
+## 오늘의 AI 요약 (EXAONE)
+
+`.env`에 `EXAONE_API_KEY`를 넣으면 매일 수집이 끝난 직후 "오늘" 화면에 요약 카드가 생깁니다.
+
+- 기본 연결 대상은 FriendliAI 서버리스(`https://api.friendli.ai/serverless/v1`, OpenAI 호환 `/chat/completions`)입니다. 모델 이름은 콘솔에 보이는 값으로 `EXAONE_MODEL`을 맞추세요(기본 `LGAI-EXAONE/K-EXAONE-236B-A23B`).
+- 직접 띄운 EXAONE(vLLM/SGLang)도 됩니다: `EXAONE_BASE_URL=http://<호스트>:8000/v1`.
+- 모델에는 최근 2일치 수집 결과(새 KEV, 악용 새로 확인, 원격·무인증 + PoC Critical, 주요 벤더 업데이트, KISA 권고)만 보냅니다. 모델이 입력에 없던 CVE 번호를 쓰면 화면에 나오기 전에 지웁니다.
+- 실패하면 이전 요약이 그대로 남고, 카드에 작성 날짜가 함께 보입니다. 실패 사유는 `radar status` 또는 `/api/status`에서 확인합니다.
+- 키가 없으면 요약 카드만 안 보이고 나머지 기능은 그대로입니다.
+
+```bash
+# 모델에 보낼 입력만 미리 보기
+docker compose exec worker python -m radar summarize --dry-run
+# 지금 바로 다시 생성
+docker compose exec worker python -m radar summarize --force
+```
+
+## 운영 명령
+
+```bash
+# 지금 바로 수집 (증분)
+docker compose exec worker python -m radar collect
+# 전체 재구축
+docker compose exec worker python -m radar collect --full
+# 번역 대기열 한 번에 다 처리 / 실패 건 재시도
+docker compose exec worker python -m radar translate --all
+docker compose exec worker python -m radar translate --retry-failed --all
+# 최근 실행 기록과 번역 현황
+docker compose exec worker python -m radar status
+curl -s http://localhost:8080/api/status | jq
+
+# 기계 번역이 어색한 항목을 직접 고치기 (이후 수집·번역이 덮어쓰지 않음)
+docker compose exec worker python -m radar ko-set CVE-2026-12345 "로그인 없이 원격 코드 실행이 가능한 취약점"
+# 다시 기계 번역에 맡기기
+docker compose exec worker python -m radar ko-reset CVE-2026-12345
+# seed의 사람이 쓴 요약을 모두 기계 번역으로 교체
+docker compose exec worker python -m radar ko-reset --seed
+```
+
+같은 수집이 겹치지 않도록 PostgreSQL advisory lock을 씁니다. 수동 `collect`가 예약 수집과 겹치면 뒤에 온 쪽이 "이미 실행 중"으로 끝납니다.
+
+## 설정 (.env)
+
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `COLLECT_CRON` | `40 8 * * *` | 수집 일정, `TZ` 기준. 증분이라 가벼우니 `40 */6 * * *`(6시간마다)도 괜찮습니다 |
+| `COLLECT_ON_START` | `false` | worker 재시작 때마다 바로 한 번 수집 |
+| `WEB_BIND` / `WEB_PORT` | `0.0.0.0` / `8080` | 리버스 프록시 뒤라면 `127.0.0.1` |
+| `KISA_ENABLED` / `KISA_PAGES` | `true` / `3` | 보호나라 목록 몇 페이지(페이지당 10건)를 읽을지 |
+| `LT_IMAGE` | `libretranslate/libretranslate:latest` | 버전 고정하려면 `libretranslate/libretranslate:v1.9.6` 같은 태그로 |
+| `LT_THREADS` | `4` | LibreTranslate 번역 스레드 |
+| `LT_BATCH` / `LT_CONCURRENCY` | `8` / `2` | 한 요청에 묶는 문장 수 / 동시 요청 수 |
+| `LT_API_KEY` | 빈 값 | LibreTranslate에 API 키를 켰을 때만 |
+| `TRANSLATE_ARCHIVE` | `true` | 15~90일 지난 Critical까지 번역 (끄면 대기열이 약 절반) |
+| `TRANSLATE_PACKAGES` | `true` | GitHub 패키지 권고 요약 번역 |
+
+## 리버스 프록시 예시 (Caddy)
+
+```caddyfile
+radar.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+`/data/*.json`은 이미 gzip으로 내려가므로 프록시에서 다시 압축하지 않아도 됩니다.
+
+## DB 테이블
+
+| 테이블 | 내용 |
+|---|---|
+| `snapshots` | 브라우저가 읽는 JSON (meta, kev, critical, archive, updates, packages, kisa, changes, insights, ko) |
+| `cve_store` | 90일 보관 CVE (9.0 이상, 주요 벤더는 7.0 이상) |
+| `kev_cache` | KEV CVE 보강 정보 캐시 |
+| `kisa_notices` | KISA 공지 90일 |
+| `change_days` | 실행 간 변화(PoC 공개, 실제 악용 전환 등) 14일 |
+| `translations` | 한국어 문장. `engine` = libretranslate / manual / seed, `status` = pending / done / failed |
+| `runs` | 수집 실행 기록 (최근 500건) |
+| `kv_state` | 예비 |
+
+백업은 `docker compose exec db pg_dump -U radar radar > radar.sql` 하나면 됩니다. 사라져도 전체 재구축으로 다시 만들 수 있고, 잃는 건 `ko-set`으로 직접 고친 문장뿐입니다.
+
+## 나가는 네트워크
+
+worker가 접속하는 곳: `raw.githubusercontent.com`, `github.com`(cvelistV5 릴리스 zip, advisory-database·malicious-packages git), `www.boho.or.kr`.
+LibreTranslate는 첫 기동 때 모델 저장소(argos-net.com 등)에서 모델을 받습니다.
+브라우저는 Google Fonts를 불러옵니다(막혀 있으면 시스템 글꼴로 표시).
+
+## 참고
+
+- 한국어 문장은 기계 번역이라 어색할 수 있습니다. 판단은 원문과 벤더 공지로 하세요.
+- "내가 쓰는 제품", "확인함" 표시는 원본처럼 각 브라우저의 localStorage에 저장됩니다(서버에 올라가지 않음).
+- 원본 페이지 하단의 제작자 표기(GitHub · cpprhtn)는 그대로 두었습니다. 공개 서비스로 올린다면 원작자에게 한 번 알리는 것을 권합니다.

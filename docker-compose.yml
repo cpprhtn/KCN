@@ -1,0 +1,96 @@
+name: vuln-radar
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD를 .env에 설정하세요}@db:5432/${POSTGRES_DB:-radar}
+  TZ: ${TZ:-Asia/Seoul}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-radar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD를 .env에 설정하세요}
+      POSTGRES_DB: ${POSTGRES_DB:-radar}
+      TZ: ${TZ:-Asia/Seoul}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  libretranslate:
+    image: ${LT_IMAGE:-libretranslate/libretranslate:latest}
+    restart: unless-stopped
+    environment:
+      LT_LOAD_ONLY: ${LT_LOAD_ONLY:-en,ko}      # 영어→한국어 모델만 받음 (첫 기동 때 다운로드)
+      LT_DISABLE_WEB_UI: "true"
+      LT_THREADS: ${LT_THREADS:-4}
+    volumes:
+      - lt_models:/home/libretranslate/.local:rw   # 모델을 볼륨에 보관해 재시작 때 다시 받지 않음
+    healthcheck:
+      test: ["CMD-SHELL", "./venv/bin/python scripts/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # 외부에 열 필요 없음. 직접 써 보고 싶으면 아래 주석 해제
+    # ports:
+    #   - "127.0.0.1:5000:5000"
+
+  web:
+    build: ./app
+    image: vuln-radar:local
+    restart: unless-stopped
+    command: ["python", "-m", "radar", "web"]
+    environment:
+      <<: *app-env
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build: ./app
+    image: vuln-radar:local
+    restart: unless-stopped
+    command: ["python", "-m", "radar", "worker"]
+    init: true                       # git 하위 프로세스 정리
+    environment:
+      <<: *app-env
+      COLLECT_CRON: ${COLLECT_CRON:-40 8 * * *}
+      COLLECT_ON_START: ${COLLECT_ON_START:-false}
+      LT_URL: http://libretranslate:5000
+      LT_API_KEY: ${LT_API_KEY:-}
+      LT_BATCH: ${LT_BATCH:-8}
+      LT_CONCURRENCY: ${LT_CONCURRENCY:-2}
+      TRANSLATE_ARCHIVE: ${TRANSLATE_ARCHIVE:-true}
+      TRANSLATE_PACKAGES: ${TRANSLATE_PACKAGES:-true}
+      KISA_ENABLED: ${KISA_ENABLED:-true}
+      KISA_PAGES: ${KISA_PAGES:-3}
+      SEED_DIR: /seed
+      EXAONE_API_KEY: ${EXAONE_API_KEY:-}
+      EXAONE_BASE_URL: ${EXAONE_BASE_URL:-https://api.friendli.ai/serverless/v1}
+      EXAONE_MODEL: ${EXAONE_MODEL:-LGAI-EXAONE/K-EXAONE-236B-A23B}
+      EXAONE_THINKING: ${EXAONE_THINKING:-false}
+      SUMMARY_MAX_TOKENS: ${SUMMARY_MAX_TOKENS:-1500}
+    volumes:
+      - ./seed:/seed:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      libretranslate:
+        condition: service_started    # 모델 다운로드가 끝날 때까지 worker가 알아서 번역을 미룸
+
+volumes:
+  pgdata:
+  lt_models:
