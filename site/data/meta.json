@@ -1,0 +1,1 @@
+{"generatedAt":"2026-11-10T23:45:41+00:00","kevCatalogVersion":"2026.11.10","kevTotal":1779,"windowCveDays":14,"windowKevDays":90,"kevCount":114,"criticalCount":779,"storedCount":12718,"retainDays":90,"deltaCursor":"2026-11-10T23:26:52.410000+00:00","mode":"incremental","kisaStatus":"ok","kisaFetchedAt":"2026-11-10T23:45:41+00:00","pkgStatus":{"ghsa":"ok","mal":"ok"}}

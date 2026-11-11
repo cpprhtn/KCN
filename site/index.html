@@ -1,0 +1,184 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>크리티컬 취약점 레이더</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="app.css">
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">취약점 트리아지</div>
+      <h1>크리티컬 취약점 레이더</h1>
+      <div class="muted small">매일 아침 1분. 내 제품에 해당하는 실제 악용·Critical 취약점을 판정합니다.</div>
+    </div>
+    <div class="fresh" id="fresh"><span class="small"><span class="dot"></span><span id="freshText">데이터 불러오는 중…</span></span><span class="small muted mono" id="freshSub"></span></div>
+  </header>
+
+  <div class="watch">
+    <div class="watch-top">
+      <h2>내가 쓰는 제품</h2>
+    </div>
+    <div class="chips" id="chips"></div>
+    <details class="presets" id="presetWrap" open>
+      <summary id="presetSum">자주 쓰는 스택을 눌러 추가</summary>
+      <div class="chips" id="presets"></div>
+    </details>
+    <form class="addrow" id="addForm">
+      <input type="text" id="addInput" aria-label="제품 추가" placeholder="예: Fortinet, Windows, PHP, Synology, next, django (패키지명도 가능, 쉼표로 여러 개)" autocomplete="off">
+      <button class="btn" type="submit">추가</button>
+      <button class="btn ghost" type="button" id="resetWatch">전체 지우기</button>
+    </form>
+    <details class="paste">
+      <summary>package.json·requirements.txt로 한 번에 등록</summary>
+      <p class="small muted">파일 내용을 붙여넣으면 패키지 이름만 뽑아 등록합니다. 내용은 이 브라우저 안에서만 처리하고 어디로도 전송하지 않습니다.</p>
+      <textarea id="pasteBox" class="copyfb" aria-label="의존성 파일 내용" placeholder='{"dependencies": {"next": "^16.0.0", "express": "^5.0.0"}}  또는  requests==2.32.0'></textarea>
+      <div class="addrow"><button class="btn" type="button" id="pasteBtn">패키지 등록</button><span class="small muted" id="pasteMsg" aria-live="polite"></span></div>
+    </details>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="t-brief" data-view="brief">브리핑</button>
+    <button class="tab" role="tab" id="t-kev" data-view="kev">실제 악용<span class="cnt" id="cKev"></span></button>
+    <button class="tab" role="tab" id="t-upd" data-view="upd">제품 업데이트<span class="cnt" id="cUpd"></span></button>
+    <button class="tab" role="tab" id="t-pkg" data-view="pkg">패키지<span class="cnt" id="cPkg"></span></button>
+    <button class="tab" role="tab" id="t-kisa" data-view="kisa">KISA<span class="cnt" id="cKisa"></span></button>
+    <button class="tab" role="tab" id="t-critical" data-view="critical">Critical<span class="cnt" id="cCrit"></span></button>
+    <button class="tab" role="tab" id="t-insights" data-view="sources">자료</button>
+  </nav>
+  <div class="seg refnav" id="refNav" role="group" aria-label="자료 종류" hidden></div>
+
+  <!-- WEEKLY BRIEF -->
+  <section id="v-brief" class="brief" hidden>
+    <div class="brief-top"><h2>이번 주 브리핑</h2><span class="muted small">최근 7일, 날짜별로 새로 생긴 것만 모았습니다.</span></div>
+    <div class="tl" id="timeline"><p class="muted">불러오는 중…</p></div>
+  </section>
+
+  <!-- PRODUCT UPDATES -->
+  <section id="v-upd" hidden>
+    <div class="toolbar">
+      <div class="seg" id="updRange" role="group" aria-label="기간"></div>
+      <div class="seg" id="updScope" role="group" aria-label="표시"></div>
+      <div class="seg" id="updSev" role="group" aria-label="심각도"></div>
+      <span class="small muted" id="updCount"></span>
+    </div>
+    <ul class="list" id="updList"><li class="empty">불러오는 중…</li></ul>
+    <p class="muted small">국내에서 많이 쓰는 제품(Synology·QNAP·ipTIME·Microsoft·Google·Apple·삼성·Fortinet·Ivanti·Cisco·한컴 등 50여 곳)은 CVSS 7.0 이상까지 모아, 벤더가 같은 날 낸 취약점을 한 묶음으로 보여줍니다. CVE 레코드가 공개되는 즉시 반영되므로 KISA 권고보다 빠른 경우가 많습니다. 90일 동안 보관합니다.</p>
+  </section>
+
+  <!-- PACKAGES -->
+  <section id="v-pkg" hidden>
+    <div class="toolbar">
+      <div class="seg" id="pkgKind" role="group" aria-label="종류"></div>
+      <div class="seg" id="pkgScope" role="group" aria-label="표시"></div>
+      <div class="seg" id="pkgSev" role="group" aria-label="심각도"></div>
+      <input type="search" id="pkgQ" placeholder="패키지명, CVE 검색">
+    </div>
+    <div class="flt" id="pkgEco"></div>
+    <div class="small muted" id="pkgNote"></div>
+    <ul class="list" id="pkgList"><li class="empty">불러오는 중…</li></ul>
+    <p class="muted small">‘내가 쓰는 제품’에 패키지 이름(next, express, django, requests 등)을 넣으면 일치하는 항목만 모아 봅니다. 데이터: GitHub Advisory Database(검수된 권고), OpenSSF malicious-packages. 내 프로젝트 전체를 검사하려면 정보원 탭의 osv-scanner를 쓰세요.</p>
+  </section>
+
+  <!-- KISA -->
+  <section id="v-kisa" hidden>
+    <div class="toolbar">
+      <div class="seg" id="kisaRange" role="group" aria-label="기간"></div>
+      <div class="seg" id="kisaScope" role="group" aria-label="표시"></div>
+    </div>
+    <ul class="list" id="kisaList"><li class="empty">불러오는 중…</li></ul>
+  </section>
+
+  <!-- INSIGHTS -->
+  <section id="v-insights" hidden>
+    <div class="igrid" id="igrid"><div class="card wide"><p class="muted">불러오는 중…</p></div></div>
+  </section>
+
+  <!-- LISTS -->
+  <section id="v-list" hidden>
+    <div class="toolbar">
+      <div class="seg" id="rangeSeg" role="group" aria-label="기간"></div>
+      <div class="seg" role="group" aria-label="표시">
+        <button type="button" data-scope="all" aria-pressed="true">전체</button>
+        <button type="button" data-scope="mine" aria-pressed="false">내 제품만</button>
+      </div>
+      <div class="seg" id="sortSeg" role="group" aria-label="정렬">
+        <button type="button" data-sort="risk" aria-pressed="true">위험 신호순</button>
+        <button type="button" data-sort="new" aria-pressed="false">최신순</button>
+      </div>
+      <input type="search" id="q" placeholder="CVE, 벤더, 제품, CWE 검색">
+    </div>
+    <div class="flt" id="flt"></div>
+    <div class="listhead">
+      <span class="small muted" id="countLine"></span>
+      <span class="flt">
+        <label class="tog"><input type="checkbox" id="hideDone"> 확인한 항목 숨기기</label>
+        <button class="btn ghost sm" type="button" id="csvBtn" hidden>CSV 내보내기</button>
+      </span>
+    </div>
+    <ul class="list" id="list"><li class="empty">불러오는 중…</li></ul>
+    <div class="more" id="moreWrap" hidden><button class="btn ghost" type="button" id="more">더 보기</button></div>
+    <p class="muted small" id="listNote"></p>
+  </section>
+
+  <!-- SOURCES -->
+  <section id="v-sources" hidden>
+    <div class="note">
+      <b>먼저 알아둘 변화.</b> 2026년 4월 15일부터 NIST NVD는 모든 CVE를 분석하지 않습니다. KEV 등재 CVE, 연방정부 사용 소프트웨어, 핵심 소프트웨어만 우선 보강하고, 나머지는 CVE를 등록한 CNA(주로 벤더)의 점수를 그대로 씁니다. 그래서 이 페이지는 NVD가 아니라 CVE 원본 레코드의 CNA 점수와 CISA 보강 데이터(Vulnrichment)를 읽습니다.
+    </div>
+    <div class="srcgroups" id="srcgroups"></div>
+  </section>
+
+  <!-- ROUTINE -->
+  <section id="v-routine" hidden>
+    <div class="cols2">
+      <div class="sg">
+        <h3>보안 담당자용</h3>
+        <ol class="steps">
+          <li><div><h3>SLA를 점수가 아니라 악용 여부로</h3><p>KEV 등재는 CVSS와 상관없이 최우선. 인사이트 탭의 "CVSS만 보면 놓치는 KEV" 비율이 그 근거입니다. 예: KEV+외부 노출 72시간, KEV 내부 7일, 그 외 Critical은 EPSS·SSVC로 차등.</p></div></li>
+          <li><div><h3>경계 장비는 따로 관리</h3><p>VPN·방화벽·게이트웨이 취약점은 공개 직후 대량 스캔이 시작됩니다. 패치와 함께 벤더가 낸 침해지표(IoC) 점검, 관리 인터페이스 외부 노출 차단까지 한 묶음으로.</p></div></li>
+          <li><div><h3>자산 인벤토리와 자동 대조</h3><p>CPE·SBOM 기준 자산 목록을 KEV JSON과 매일 대조합니다. 위 "내가 쓰는 제품"에 주요 벤더를 넣어 두면 이 페이지가 같은 역할을 합니다.</p></div></li>
+          <li><div><h3>레거시 백로그를 버리지 않기</h3><p>KEV 등재의 상당수는 공개된 지 1년이 넘은 취약점입니다. 오래된 미패치 자산이 계속 공격 대상이 됩니다.</p></div></li>
+          <li><div><h3>정기 패치일에 대비</h3><p>MS 패치 화요일(한국 수요일 새벽), Oracle CPU(1·4·7·10월), Chrome 주간 릴리스, Android·삼성 월간 게시판. 신규 Critical 일별 그래프의 급증일이 대부분 이런 날입니다.</p></div></li>
+        </ol>
+      </div>
+      <div class="sg">
+        <h3>개인용</h3>
+        <ol class="steps">
+          <li><div><h3>자동 업데이트부터 켜기</h3><p>Windows, macOS·iOS, Android·갤럭시, Chrome·Edge. 브라우저는 업데이트 후 재시작해야 적용돼요.</p></div></li>
+          <li><div><h3>매일 아침 1분</h3><p>"내 제품만"을 켜고 KEV 탭을 봅니다. 0건이면 끝, 있으면 벤더 공지에서 버전을 맞춥니다.</p></div></li>
+          <li><div><h3>집 안의 잊힌 장비</h3><p>공유기, NAS(Synology·QNAP), IP카메라, VPN 앱. 모델명을 "내가 쓰는 제품"에 넣어 두세요.</p></div></li>
+          <li><div><h3>국산 소프트웨어는 KISA로</h3><p>보안 플러그인, 한컴오피스, 국산 백신은 보호나라 보안공지가 가장 빠르고 정확합니다.</p></div></li>
+        </ol>
+      </div>
+    </div>
+    <div class="cols2">
+      <div class="sg"><h3>KEV 신규 항목만 뽑기</h3>
+<pre># 최근 7일 추가된 KEV
+curl -s https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json \
+| jq -r --arg d "$(date -d '-7 day' +%F)" \
+  '.vulnerabilities[] | select(.dateAdded &gt;= $d)
+   | "\(.dateAdded) \(.cveID) \(.vendorProject) \(.product)"'</pre>
+      </div>
+      <div class="sg"><h3>EPSS 점수 조회 · OSV 스캔</h3>
+<pre># EPSS (30일 내 악용 확률)
+curl -s "https://api.first.org/data/v1/epss?cve=CVE-2026-48356"
+# 프로젝트 의존성 검사
+osv-scanner scan -r .</pre>
+      </div>
+    </div>
+  </section>
+
+  <p class="muted small">매일 오전 8시 40분(KST)에 자동 갱신됩니다. 데이터: CISA KEV(GitHub 공식 미러), CVE List V5(CVEProject/cvelistV5), CISA Vulnrichment(SSVC). CVSS는 CNA 점수를 우선하고, 없으면 CISA ADP 점수를 씁니다. "경계 장비"는 벤더·제품명 기반 추정입니다. 조치 판단은 벤더 공지로 최종 확인하세요.</p>
+
+  <footer class="site-foot">
+    <span>만들고 관리하는 사람</span>
+    <a href="https://github.com/cpprhtn" target="_blank" rel="noopener">GitHub · cpprhtn ↗</a>
+  </footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script src="app.js"></script>
+
+</body></html>
