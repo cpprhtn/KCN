@@ -42,7 +42,7 @@ services:
 
   web:
     build: ./app
-    image: KCN:local
+    image: kcn:local
     restart: unless-stopped
     command: ["python", "-m", "radar", "web"]
     environment:
@@ -61,7 +61,7 @@ services:
 
   worker:
     build: ./app
-    image: KCN:local
+    image: kcn:local
     restart: unless-stopped
     command: ["python", "-m", "radar", "worker"]
     init: true                       # git 하위 프로세스 정리
