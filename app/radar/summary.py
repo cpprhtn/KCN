@@ -1,17 +1,20 @@
-"""Korean briefing written by EXAONE, on SUMMARY_CRON (default 07:00, 12:00, 19:00) with every run kept in summary_history (any OpenAI-compatible /chat/completions endpoint).
+"""Korean briefing written by ChatGPT (OpenAI Chat Completions API), on SUMMARY_CRON (default 07:00, 12:00, 19:00)
+with every run kept in summary_history. Also runs on demand via POST /api/summarize (see verify_public_key).
 
-Default target: LG EXAONE API Platform (https://api.exaone.ai/v1, model k-exaone_v2.5). K-EXAONE 2.5 always
-reasons; reasoning comes back in message.reasoning_content and counts toward max_tokens.
-FriendliAI serverless (https://api.friendli.ai/serverless/v1) with older EXAONE models works too.
-A self-hosted vLLM/SGLang EXAONE works too: point EXAONE_BASE_URL at it (e.g. http://exaone:8000/v1).
+Default target: https://api.openai.com/v1, model gpt-5-mini. Reasoning tokens count toward max_completion_tokens.
+Any OpenAI-compatible /chat/completions endpoint works by changing OPENAI_BASE_URL.
 
 The model only sees the last ~2 days of collected data. Any CVE id it returns that was not in that input is dropped,
 so the page never links to an id the model made up.
 """
+import base64
+import binascii
 import datetime as dt
+import hmac
 import json
 import logging
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -41,8 +44,87 @@ SYSTEM = """당신은 한국 기업의 인프라·보안 운영 담당자를 위
 - points는 3~6개, actions는 1~4개. urgent는 실제 악용이 확인된 것에만 씁니다."""
 
 
+_run_lock = threading.Lock()
+
+
 def enabled():
-    return bool(config.EXAONE_API_KEY) and config.SUMMARY_ENABLED
+    return bool(config.OPENAI_API_KEY) and config.SUMMARY_ENABLED
+
+
+# ---------- on-demand trigger: the caller proves it holds the public key of SUMMARY_PRIVATE_KEY
+
+def _b64(s):
+    s = "".join(s.split())
+    return base64.urlsafe_b64decode(s.replace("+", "-").replace("/", "_") + "=" * (-len(s) % 4))
+
+
+def _load_private(text):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    text = text.strip().replace("\\n", "\n")
+    if "BEGIN" in text:
+        k = serialization.load_pem_private_key(text.encode(), password=None)
+        if not isinstance(k, Ed25519PrivateKey):
+            raise ValueError("SUMMARY_PRIVATE_KEY는 Ed25519 키여야 합니다")
+        return k
+    raw = _b64(text)
+    if len(raw) != 32:
+        raise ValueError("SUMMARY_PRIVATE_KEY는 base64로 된 32바이트 Ed25519 키여야 합니다")
+    return Ed25519PrivateKey.from_private_bytes(raw)
+
+
+def _raw_public(key):
+    from cryptography.hazmat.primitives import serialization
+    return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+
+
+def expected_public_key():
+    """Raw 32-byte public key derived from SUMMARY_PRIVATE_KEY, or None when it is not set."""
+    if not config.SUMMARY_PRIVATE_KEY:
+        return None
+    return _raw_public(_load_private(config.SUMMARY_PRIVATE_KEY))
+
+
+def parse_public_key(text):
+    """Accepts base64/base64url of the raw 32 bytes, or a PEM public key. Returns raw bytes or None."""
+    text = (text or "").strip().replace("\\n", "\n")
+    if not text or len(text) > 2000:
+        return None
+    try:
+        if "BEGIN" in text:
+            from cryptography.hazmat.primitives import serialization
+            k = serialization.load_pem_public_key(text.encode())
+            return k.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        raw = _b64(text)
+        return raw if len(raw) == 32 else None
+    except (ValueError, TypeError, binascii.Error):
+        return None
+
+
+def verify_public_key(text):
+    want = expected_public_key()
+    got = parse_public_key(text)
+    return bool(want and got) and hmac.compare_digest(want, got)
+
+
+def keygen():
+    """New Ed25519 pair as base64: (private for .env, public for the POST body)."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    k = Ed25519PrivateKey.generate()
+    priv = k.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    return base64.b64encode(priv).decode(), base64.b64encode(_raw_public(k)).decode()
+
+
+def run_now(slot=None):
+    """Briefing on request (POST /api/summarize). Returns None when one is already being written."""
+    if not _run_lock.acquire(blocking=False):
+        return None
+    try:
+        slot = slot or dt.datetime.now(ZoneInfo(config.TZ)).strftime("%H:%M")
+        return run(slot=slot)
+    finally:
+        _run_lock.release()
 
 
 def _today():
@@ -162,39 +244,39 @@ def build_digest(cur, today=None):
 
 def _call(prompt):
     body = {
-        "model": config.EXAONE_MODEL,
+        "model": config.OPENAI_MODEL,
         "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-        "max_tokens": config.SUMMARY_MAX_TOKENS,
-        "temperature": 0.3,
-        "top_p": 0.95,
-        "stream": False,
+        "max_completion_tokens": config.SUMMARY_MAX_TOKENS,
+        "response_format": {"type": "json_object"},
     }
-    if config.EXAONE_REASONING_EFFORT:
-        body["reasoning_effort"] = config.EXAONE_REASONING_EFFORT   # K-EXAONE 2.5: thinking can't be disabled
-    elif not config.EXAONE_THINKING:
-        body["chat_template_kwargs"] = {"enable_thinking": False}  # older EXAONE on vLLM/SGLang/Friendli
+    if config.OPENAI_REASONING_EFFORT:
+        body["reasoning_effort"] = config.OPENAI_REASONING_EFFORT
+    if config.OPENAI_TEMPERATURE:
+        body["temperature"] = float(config.OPENAI_TEMPERATURE)
     data = json.dumps(body).encode("utf-8")
-    url = config.EXAONE_BASE_URL.rstrip("/") + "/chat/completions"
+    url = config.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
     last = None
     for attempt in range(3):
         req = urllib.request.Request(url, data=data, headers={
-            "Content-Type": "application/json", "Authorization": "Bearer " + config.EXAONE_API_KEY})
+            "Content-Type": "application/json", "Authorization": "Bearer " + config.OPENAI_API_KEY})
         try:
             with urllib.request.urlopen(req, timeout=config.SUMMARY_TIMEOUT) as r:
                 res = json.loads(r.read())
             choice = (res.get("choices") or [{}])[0]
             msg = choice.get("message") or {}
             text = msg.get("content") or ""
+            if msg.get("refusal"):
+                raise RuntimeError("모델이 응답을 거절함: " + str(msg["refusal"])[:300])
             if not text.strip():
                 if choice.get("finish_reason") == "length":
                     raise RuntimeError("추론 중 max_tokens 소진 — SUMMARY_MAX_TOKENS를 늘리거나 "
-                                       "EXAONE_REASONING_EFFORT를 낮추세요")
+                                       "OPENAI_REASONING_EFFORT를 낮추세요")
                 raise RuntimeError("빈 응답: " + json.dumps(res, ensure_ascii=False)[:300])
             return text
         except urllib.error.HTTPError as e:
             detail = e.read()[:400].decode("utf-8", "replace")
             last = RuntimeError(f"HTTP {e.code}: {detail}")
-            if e.code in (400, 401, 403, 404, 422):
+            if e.code in (400, 401, 403, 404, 422) or (e.code == 429 and "insufficient_quota" in detail):
                 break                                   # config problem: retrying won't help
         except Exception as e:
             last = e
@@ -238,14 +320,14 @@ def run(force=False, slot=""):
     """Generate a briefing now (worker: on SUMMARY_CRON slots). Every success is also kept in summary_history.
     Returns a status dict; never raises for expected failures. `force` is kept for the CLI."""
     if not enabled():
-        return {"skipped": "EXAONE_API_KEY 미설정"}
+        return {"skipped": "OPENAI_API_KEY 미설정"}
     today = _today()
     with db.connect() as c:
         with c.cursor() as cur:
             prompt, allowed, counts = build_digest(cur, today)
         c.commit()
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-    base = {"date": today.isoformat(), "generatedAt": now, "model": config.EXAONE_MODEL, "counts": counts,
+    base = {"date": today.isoformat(), "generatedAt": now, "model": config.OPENAI_MODEL, "counts": counts,
             "windowDays": WINDOW_DAYS, "slot": slot}
     if not prompt:
         doc = dict(base, status="ok", headline="지난 이틀 동안 새로 생긴 주요 취약점이 없습니다.", points=[], actions=[], quiet=True)

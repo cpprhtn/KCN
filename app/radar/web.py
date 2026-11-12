@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from email.utils import formatdate
 
-from fastapi import FastAPI, Request
+from fastapi import Body, FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from psycopg_pool import ConnectionPool
@@ -138,7 +138,7 @@ def rss_history(feed: str | None = None, before: str | None = None, q: str | Non
 
 @app.get("/api/summaries")
 def summaries(before: str | None = None, limit: int = 20):
-    """EXAONE briefing history, newest first. before = the 'at' of the last row you have."""
+    """ChatGPT briefing history, newest first. before = the 'at' of the last row you have."""
     limit = max(1, min(limit, 100))
     b = None
     if before:
@@ -150,6 +150,31 @@ def summaries(before: str | None = None, limit: int = 20):
         with c.cursor() as cur:
             items = summary.history(cur, before=b, limit=limit + 1)
     return {"items": items[:limit], "more": len(items) > limit, "schedule": config.SUMMARY_CRON}
+
+
+@app.post("/api/summarize")
+def summarize(request: Request, payload: dict | None = Body(default=None)):
+    """Write a briefing now. Body: {"public_key": "<base64 or PEM>"} (or header X-Public-Key).
+    Runs only when that key is the public half of SUMMARY_PRIVATE_KEY."""
+    if not config.SUMMARY_PRIVATE_KEY:
+        return JSONResponse({"error": "SUMMARY_PRIVATE_KEY가 설정되지 않아 꺼져 있습니다"}, status_code=503)
+    key = (payload or {}).get("public_key") or (payload or {}).get("publicKey") or request.headers.get("x-public-key")
+    try:
+        ok = summary.verify_public_key(key if isinstance(key, str) else "")
+    except Exception as e:                 # SUMMARY_PRIVATE_KEY itself is malformed
+        log.error("SUMMARY_PRIVATE_KEY를 읽지 못함: %s", e)
+        return JSONResponse({"error": "서버의 SUMMARY_PRIVATE_KEY 형식이 잘못됐습니다"}, status_code=500)
+    if not ok:
+        log.warning("요약 요청 거부: 공개키 불일치 (%s)", request.client.host if request.client else "?")
+        return JSONResponse({"error": "공개키가 일치하지 않습니다"}, status_code=401)
+    if not summary.enabled():
+        return JSONResponse({"error": "OPENAI_API_KEY가 설정되지 않았습니다"}, status_code=503)
+    r = summary.run_now()
+    if r is None:
+        return JSONResponse({"error": "이미 요약을 쓰는 중입니다"}, status_code=409)
+    if r.get("failed"):
+        return JSONResponse(r, status_code=502)
+    return r
 
 
 app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")

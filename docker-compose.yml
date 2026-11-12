@@ -3,6 +3,13 @@ name: vuln-radar
 x-app-env: &app-env
   DATABASE_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD를 .env에 설정하세요}@db:5432/${POSTGRES_DB:-radar}
   TZ: ${TZ:-Asia/Seoul}
+  # AI 요약 (ChatGPT): worker는 예약 시각에, web은 POST /api/summarize 요청 때 씁니다
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+  OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT-low}
+  OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-}
+  SUMMARY_MAX_TOKENS: ${SUMMARY_MAX_TOKENS:-8000}
 
 services:
   db:
@@ -47,6 +54,7 @@ services:
     command: ["python", "-m", "radar", "web"]
     environment:
       <<: *app-env
+      SUMMARY_PRIVATE_KEY: ${SUMMARY_PRIVATE_KEY:-}      # 비우면 POST /api/summarize 꺼짐
     ports:
       - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:${WEB_PORT:-8080}"
     depends_on:
@@ -78,12 +86,6 @@ services:
       KISA_ENABLED: ${KISA_ENABLED:-true}
       KISA_PAGES: ${KISA_PAGES:-3}
       SEED_DIR: /seed
-      EXAONE_API_KEY: ${EXAONE_API_KEY:-}
-      EXAONE_BASE_URL: ${EXAONE_BASE_URL:-https://api.exaone.ai/v1}
-      EXAONE_MODEL: ${EXAONE_MODEL:-k-exaone_v2.5}
-      EXAONE_THINKING: ${EXAONE_THINKING:-false}
-      EXAONE_REASONING_EFFORT: ${EXAONE_REASONING_EFFORT-low}
-      SUMMARY_MAX_TOKENS: ${SUMMARY_MAX_TOKENS:-8000}
       SUMMARY_CRON: ${SUMMARY_CRON:-0 7,12,19 * * *}       # AI 요약: 07:00, 12:00, 19:00
       SUMMARY_FRESH_HOURS: ${SUMMARY_FRESH_HOURS:-3}
       RSS_ENABLED: ${RSS_ENABLED:-true}

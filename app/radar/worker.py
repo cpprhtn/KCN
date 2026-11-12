@@ -51,7 +51,7 @@ def data_age_hours():
 
 
 def summary_once(slot_time):
-    """One EXAONE briefing for a SUMMARY_CRON slot; collects first if the data is stale."""
+    """One ChatGPT briefing for a SUMMARY_CRON slot; collects first if the data is stale."""
     if not summary.enabled():
         return
     slot = slot_time.strftime("%H:%M")

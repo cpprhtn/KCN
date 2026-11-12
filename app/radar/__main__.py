@@ -8,6 +8,8 @@
   python -m radar ko-set KEY "한국어 문장"     hand-written Korean (never overwritten by MT)
   python -m radar ko-reset KEY | --seed    give KEY (or every seed row) back to LibreTranslate
   python -m radar rss                      poll the RSS feeds (RSS_FEEDS) once
+  python -m radar summarize [--dry-run]    write a ChatGPT briefing now
+  python -m radar keygen                   new Ed25519 pair for SUMMARY_PRIVATE_KEY / POST /api/summarize
   python -m radar status
 """
 import argparse
@@ -41,12 +43,22 @@ def main(argv=None):
     p = sub.add_parser("ko-reset")
     p.add_argument("key", nargs="?")
     p.add_argument("--seed", action="store_true")
-    p = sub.add_parser("summarize", help="EXAONE으로 오늘의 요약 생성")
+    p = sub.add_parser("summarize", help="ChatGPT로 오늘의 요약 생성")
     p.add_argument("--force", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="모델에 보낼 입력만 출력")
     sub.add_parser("rss", help="RSS 피드(RSS_FEEDS)를 지금 한 번 읽기")
     sub.add_parser("status")
+    sub.add_parser("keygen", help="SUMMARY_PRIVATE_KEY용 Ed25519 키 쌍 만들기")
     a = ap.parse_args(argv)
+
+    if a.cmd == "keygen":
+        from . import summary
+        priv, pub = summary.keygen()
+        print("# .env 에 넣을 개인키 (남에게 보여 주지 마세요)")
+        print("SUMMARY_PRIVATE_KEY=" + priv)
+        print("# POST /api/summarize 에 보낼 공개키")
+        print("public_key=" + pub)
+        return
 
     from . import db
     if a.cmd == "web":

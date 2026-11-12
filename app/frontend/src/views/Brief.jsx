@@ -109,7 +109,7 @@ function CopyFallback({ text }) {
   return <div><textarea ref={ref} className="copyfb" readOnly aria-label="보고용 텍스트" value={text} /></div>;
 }
 
-// ---------- latest AI summary (EXAONE)
+// ---------- latest AI summary (ChatGPT)
 function AiCard() {
   const { summary: sm } = useApp();
   if (!sm || sm.status !== "ok" || !sm.headline) return null;
@@ -122,7 +122,7 @@ function AiCard() {
         <span className="ai-meta">{(stale ? sm.date + " 요약 · " : "") + at.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" }) + " 작성"}</span>
       </div>
       <SummaryBody sm={sm} />
-      <p className="ai-note">수집한 데이터만 보고 EXAONE이 쓴 요약입니다(매일 7시·12시·19시). 조치 전에 원문과 벤더 공지를 확인하세요. <a href="#ai">지난 요약 보기 →</a></p>
+      <p className="ai-note">수집한 데이터만 보고 ChatGPT가 쓴 요약입니다(매일 7시·12시·19시). 조치 전에 원문과 벤더 공지를 확인하세요. <a href="#ai">지난 요약 보기 →</a></p>
     </div>
   );
 }

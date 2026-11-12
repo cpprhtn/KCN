@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS rss_items (
 );
 CREATE INDEX IF NOT EXISTS rss_items_pub_idx ON rss_items (feed, published DESC);
 CREATE INDEX IF NOT EXISTS rss_items_cves_idx ON rss_items USING gin (cves);
--- Every EXAONE briefing (the "summary" snapshot only holds the latest)
+-- Every ChatGPT briefing (the "summary" snapshot only holds the latest)
 CREATE TABLE IF NOT EXISTS summary_history (
     id            bigserial PRIMARY KEY,
     generated_at  timestamptz NOT NULL DEFAULT now(),

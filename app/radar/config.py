@@ -39,15 +39,19 @@ TRANSLATE_MAX_CHARS = _int("TRANSLATE_MAX_CHARS", 420)
 TRANSLATE_ARCHIVE = _bool("TRANSLATE_ARCHIVE", True)                # 15-90 day Critical too
 TRANSLATE_PACKAGES = _bool("TRANSLATE_PACKAGES", True)              # GitHub advisory summaries
 
-# Daily summary by EXAONE (OpenAI-compatible endpoint; default LG EXAONE API Platform, K-EXAONE 2.5)
-EXAONE_API_KEY = os.environ.get("EXAONE_API_KEY", "")
-EXAONE_BASE_URL = os.environ.get("EXAONE_BASE_URL", "https://api.exaone.ai/v1")
-EXAONE_MODEL = os.environ.get("EXAONE_MODEL", "k-exaone_v2.5")
-EXAONE_THINKING = _bool("EXAONE_THINKING", False)          # older EXAONE only (enable_thinking switch)
-# K-EXAONE 2.5 always reasons; this sets how much (low|high|max, API default max). Empty = not sent.
-EXAONE_REASONING_EFFORT = os.environ.get("EXAONE_REASONING_EFFORT", "low").strip().lower()
+# Daily summary by ChatGPT (OpenAI Chat Completions API)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+# reasoning models (gpt-5 family, o-series): minimal|low|medium|high. Empty = not sent (e.g. gpt-4o / gpt-4.1).
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low").strip().lower()
+# only sent when set; reasoning models accept the default only
+OPENAI_TEMPERATURE = os.environ.get("OPENAI_TEMPERATURE", "").strip()
+# Ed25519 private key (base64 raw 32 bytes or PEM). POST /api/summarize runs a briefing only when the
+# public key in the request matches this one. Empty = the endpoint is off. Make a pair: python -m radar keygen
+SUMMARY_PRIVATE_KEY = os.environ.get("SUMMARY_PRIVATE_KEY", "").strip()
 SUMMARY_ENABLED = _bool("SUMMARY_ENABLED", True)
-SUMMARY_MAX_TOKENS = _int("SUMMARY_MAX_TOKENS", 8000)   # includes reasoning tokens
+SUMMARY_MAX_TOKENS = _int("SUMMARY_MAX_TOKENS", 8000)   # max_completion_tokens, includes reasoning tokens
 SUMMARY_TIMEOUT = _int("SUMMARY_TIMEOUT", 300)
 SUMMARY_CRON = os.environ.get("SUMMARY_CRON", "0 7,12,19 * * *")    # in TZ: 07:00, 12:00, 19:00
 SUMMARY_FRESH_HOURS = _int("SUMMARY_FRESH_HOURS", 3)               # collect first when data is older than this

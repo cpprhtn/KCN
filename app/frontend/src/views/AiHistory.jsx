@@ -64,9 +64,9 @@ export default function AiHistory() {
 
   return (
     <section id="v-ai">
-      <PageHead title="AI 요약 기록">EXAONE이 매일 오전 7시·낮 12시·저녁 7시에 쓴 브리핑을 모두 보관합니다. 수집한 데이터만 보고 쓴 요약이니 조치 전에 원문과 벤더 공지를 확인하세요.</PageHead>
+      <PageHead title="AI 요약 기록">ChatGPT가 매일 오전 7시·낮 12시·저녁 7시에 쓴 브리핑을 모두 보관합니다. 수집한 데이터만 보고 쓴 요약이니 조치 전에 원문과 벤더 공지를 확인하세요.</PageHead>
       {!st.loaded && <p className="muted">불러오는 중…</p>}
-      {st.loaded && !st.items.length && !st.err && <p className="empty">아직 기록이 없습니다. EXAONE API 키가 설정돼 있으면 다음 예약 시각에 첫 요약이 생깁니다.</p>}
+      {st.loaded && !st.items.length && !st.err && <p className="empty">아직 기록이 없습니다. OpenAI API 키가 설정돼 있으면 다음 예약 시각에 첫 요약이 생깁니다.</p>}
       {days.map((d) => (
         <div className="ai-day" key={d.k}>
           <h2 className="ai-day-h">{d.title}</h2>
