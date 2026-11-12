@@ -72,10 +72,55 @@ CREATE TABLE IF NOT EXISTS runs (
     summary      jsonb,
     error        text
 );
+-- RSS/Atom entries (KNVD 등). Kept forever: feeds only show their latest ~10 entries.
+CREATE TABLE IF NOT EXISTS rss_items (
+    feed        text NOT NULL,
+    guid        text NOT NULL,
+    title       text NOT NULL,
+    link        text NOT NULL DEFAULT '',
+    body        text NOT NULL DEFAULT '',
+    category    text NOT NULL DEFAULT '',
+    published   timestamptz NOT NULL,
+    cves        text[] NOT NULL DEFAULT '{}',
+    lang        text NOT NULL DEFAULT 'ko',          -- ko | en
+    extra       jsonb NOT NULL DEFAULT '{}',          -- cvss, severity ...
+    first_seen  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (feed, guid)
+);
+CREATE INDEX IF NOT EXISTS rss_items_pub_idx ON rss_items (feed, published DESC);
+CREATE INDEX IF NOT EXISTS rss_items_cves_idx ON rss_items USING gin (cves);
+-- Every EXAONE briefing (the "summary" snapshot only holds the latest)
+CREATE TABLE IF NOT EXISTS summary_history (
+    id            bigserial PRIMARY KEY,
+    generated_at  timestamptz NOT NULL DEFAULT now(),
+    day           date NOT NULL,
+    slot          text NOT NULL DEFAULT '',        -- "07:00" etc. (TZ), '' for manual runs
+    doc           jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS summary_history_at_idx ON summary_history (generated_at DESC);
+-- Everything the collector has ever stored. cve_store / kisa_notices keep 90 days; these are never pruned.
+CREATE TABLE IF NOT EXISTS cve_history (
+    cve_id      text PRIMARY KEY,
+    published   date NOT NULL,
+    score       real NOT NULL,
+    vendor      text NOT NULL DEFAULT '',
+    item        jsonb NOT NULL,
+    first_seen  timestamptz NOT NULL DEFAULT now(),
+    last_seen   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS cve_history_published_idx ON cve_history (published DESC);
+CREATE TABLE IF NOT EXISTS kisa_history (
+    ntt         text PRIMARY KEY,
+    date        date NOT NULL,
+    item        jsonb NOT NULL,
+    first_seen  timestamptz NOT NULL DEFAULT now()
+);
 """
 
 LOCK_COLLECT = 724_001
 LOCK_TRANSLATE = 724_002
+LOCK_RSS = 724_003
 
 
 def connect(autocommit=False, retries=30):

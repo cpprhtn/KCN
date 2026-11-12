@@ -49,10 +49,24 @@ EXAONE_REASONING_EFFORT = os.environ.get("EXAONE_REASONING_EFFORT", "low").strip
 SUMMARY_ENABLED = _bool("SUMMARY_ENABLED", True)
 SUMMARY_MAX_TOKENS = _int("SUMMARY_MAX_TOKENS", 8000)   # includes reasoning tokens
 SUMMARY_TIMEOUT = _int("SUMMARY_TIMEOUT", 300)
+SUMMARY_CRON = os.environ.get("SUMMARY_CRON", "0 7,12,19 * * *")    # in TZ: 07:00, 12:00, 19:00
+SUMMARY_FRESH_HOURS = _int("SUMMARY_FRESH_HOURS", 3)               # collect first when data is older than this
 
 # KISA (boho.or.kr) list pages to read each run (10 posts per page)
 KISA_PAGES = max(1, _int("KISA_PAGES", 3))
 KISA_ENABLED = _bool("KISA_ENABLED", True)
+
+# RSS/Atom feeds: "name|표시 이름|url" separated by ';'. Entries are kept forever in rss_items.
+RSS_FEEDS = os.environ.get(
+    "RSS_FEEDS",
+    "knvd-notice|KNVD 보안공지|https://knvd.krcert.or.kr/rss/security/notice;"
+    "knvd-vuln|KNVD 공개 취약점|https://knvd.krcert.or.kr/rss/security/info",
+)
+RSS_ENABLED = _bool("RSS_ENABLED", True)
+RSS_INTERVAL_MIN = max(5, _int("RSS_INTERVAL_MIN", 30))
+RSS_SNAPSHOT_DAYS = max(7, _int("RSS_SNAPSHOT_DAYS", 180))      # what the page loads up front; older via /api/rss
+RSS_SNAPSHOT_MAX = max(50, _int("RSS_SNAPSHOT_MAX", 600))       # per feed
+RSS_BODY_MAX = max(1000, _int("RSS_BODY_MAX", 20000))
 
 # web
 WEB_HOST = os.environ.get("WEB_HOST", "0.0.0.0")
@@ -61,5 +75,5 @@ STATIC_DIR = os.environ.get("STATIC_DIR", os.path.join(os.path.dirname(os.path.d
 
 USER_AGENT = os.environ.get(
     "HTTP_USER_AGENT",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 vuln-radar/1.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 kcm/1.0",
 )

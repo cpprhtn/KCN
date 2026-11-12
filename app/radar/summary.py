@@ -1,4 +1,4 @@
-"""Daily Korean briefing written by EXAONE (any OpenAI-compatible /chat/completions endpoint).
+"""Korean briefing written by EXAONE, on SUMMARY_CRON (default 07:00, 12:00, 19:00) with every run kept in summary_history (any OpenAI-compatible /chat/completions endpoint).
 
 Default target: LG EXAONE API Platform (https://api.exaone.ai/v1, model k-exaone_v2.5). K-EXAONE 2.5 always
 reasons; reasoning comes back in message.reasoning_content and counts toward max_tokens.
@@ -16,6 +16,8 @@ import time
 import urllib.error
 import urllib.request
 from zoneinfo import ZoneInfo
+
+from psycopg.types.json import Jsonb
 
 from . import config, db
 
@@ -134,6 +136,15 @@ def build_digest(cur, today=None):
             lines.append(f"- {g['vendor']} ({', '.join((g.get('products') or [])[:3])}) | CVE {g.get('count')}건, 최고 {g.get('maxScore')}점, "
                          f"인증 없이 원격 {g.get('nRemote')}건, 실제 악용 {len(g.get('kev') or [])}건 | 대표 CVE: {', '.join(ids[:3])}"
                          + (f" | 수정: {', '.join(g.get('fixes')[:2])}" if g.get("fixes") else ""))
+    rss_items = [r for r in (db.get_snapshot(cur, "rss", {}) or {}).get("items", []) if r.get("date", "") >= since]
+    if rss_items:
+        lines.append("## KNVD(KISA 보안취약점 정보포털) 새 글")
+        for r in rss_items[:12]:
+            allowed.update(r.get("cves") or [])
+            title = say(f"rss:{r['feed']}:{r['id']}:t", r.get("title")) if r.get("lang") == "en" else _clip(r.get("title"), 160)
+            extra = f" | CVSS {r['cvss']}" if r.get("cvss") is not None else ""
+            cves = ", ".join((r.get("cves") or [])[:3])
+            lines.append(f"- {r['date']} {title}{extra}" + (f" | {cves}" if cves else ""))
     k_kisa = [k for k in kisa if k.get("date", "") >= since]
     if k_kisa:
         lines.append("## KISA 보호나라 권고")
@@ -141,7 +152,7 @@ def build_digest(cur, today=None):
             allowed.update(k.get("cves") or [])
             lines.append(f"- {k['date']} {k['title']}")
     counts = {"kevNew": len(k_new), "exploitedNew": len(ev_active), "pocNew": ev_poc, "critNew": len(c_new),
-              "hot": len(hot), "updates": len(groups), "kisa": len(k_kisa)}
+              "hot": len(hot), "updates": len(groups), "kisa": len(k_kisa), "knvd": len(rss_items)}
     if not lines:
         return "", allowed, counts
     head = (f"기준일: {today.isoformat()} (최근 {WINDOW_DAYS}일)\n"
@@ -223,21 +234,19 @@ def parse(text, allowed):
     return {"headline": head, "points": points[:6], "actions": actions}
 
 
-def run(force=False):
-    """Generate today's summary. Returns a status dict; never raises for expected failures."""
+def run(force=False, slot=""):
+    """Generate a briefing now (worker: on SUMMARY_CRON slots). Every success is also kept in summary_history.
+    Returns a status dict; never raises for expected failures. `force` is kept for the CLI."""
     if not enabled():
         return {"skipped": "EXAONE_API_KEY 미설정"}
     today = _today()
     with db.connect() as c:
         with c.cursor() as cur:
-            prev = db.get_snapshot(cur, "summary", {}) or {}
-            if not force and prev.get("date") == today.isoformat() and prev.get("status") == "ok":
-                return {"skipped": "오늘 요약이 이미 있음"}
             prompt, allowed, counts = build_digest(cur, today)
         c.commit()
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     base = {"date": today.isoformat(), "generatedAt": now, "model": config.EXAONE_MODEL, "counts": counts,
-            "windowDays": WINDOW_DAYS}
+            "windowDays": WINDOW_DAYS, "slot": slot}
     if not prompt:
         doc = dict(base, status="ok", headline="지난 이틀 동안 새로 생긴 주요 취약점이 없습니다.", points=[], actions=[], quiet=True)
     else:
@@ -259,6 +268,16 @@ def run(force=False):
     with db.connect() as c:
         with c.cursor() as cur:
             db.put_snapshot(cur, "summary", doc)
+            cur.execute("INSERT INTO summary_history (day, slot, doc) VALUES (%s, %s, %s)", (today, slot, Jsonb(doc)))
         c.commit()
     log.info("오늘의 요약 저장: %s", doc["headline"])
     return {"ok": True, "points": len(doc["points"]), "headline": doc["headline"]}
+
+
+def history(cur, before=None, limit=20):
+    """Past briefings for /api/summaries, newest first."""
+    if before:
+        cur.execute("SELECT id, generated_at, slot, doc FROM summary_history WHERE generated_at < %s ORDER BY generated_at DESC LIMIT %s", (before, limit))
+    else:
+        cur.execute("SELECT id, generated_at, slot, doc FROM summary_history ORDER BY generated_at DESC LIMIT %s", (limit,))
+    return [dict(doc, id=i, at=at.isoformat(timespec="seconds"), slot=slot or doc.get("slot") or "") for i, at, slot, doc in cur.fetchall()]

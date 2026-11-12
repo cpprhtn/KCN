@@ -92,7 +92,9 @@ def sync_queue(cur, cands, keep_extra=()):
     with cur.copy("COPY _keep_keys (key) FROM STDIN") as cp:
         for k in keep:
             cp.write_row((k,))
-    cur.execute("DELETE FROM translations t WHERE NOT EXISTS (SELECT 1 FROM _keep_keys k WHERE k.key = t.key)")
+    # rss:* rows belong to rss.py and are kept as long as the entry (forever)
+    cur.execute("""DELETE FROM translations t WHERE t.key NOT LIKE 'rss:%%'
+                   AND NOT EXISTS (SELECT 1 FROM _keep_keys k WHERE k.key = t.key)""")
     pruned = cur.rowcount
     # give failed rows another chance once a day (LibreTranslate may have been restarting)
     cur.execute("""UPDATE translations SET status = 'pending', attempts = 0

@@ -42,7 +42,7 @@ services:
 
   web:
     build: ./app
-    image: vuln-radar:local
+    image: kcm:local
     restart: unless-stopped
     command: ["python", "-m", "radar", "web"]
     environment:
@@ -61,7 +61,7 @@ services:
 
   worker:
     build: ./app
-    image: vuln-radar:local
+    image: kcm:local
     restart: unless-stopped
     command: ["python", "-m", "radar", "worker"]
     init: true                       # git 하위 프로세스 정리
@@ -84,6 +84,11 @@ services:
       EXAONE_THINKING: ${EXAONE_THINKING:-false}
       EXAONE_REASONING_EFFORT: ${EXAONE_REASONING_EFFORT-low}
       SUMMARY_MAX_TOKENS: ${SUMMARY_MAX_TOKENS:-8000}
+      SUMMARY_CRON: ${SUMMARY_CRON:-0 7,12,19 * * *}       # AI 요약: 07:00, 12:00, 19:00
+      SUMMARY_FRESH_HOURS: ${SUMMARY_FRESH_HOURS:-3}
+      RSS_ENABLED: ${RSS_ENABLED:-true}
+      RSS_INTERVAL_MIN: ${RSS_INTERVAL_MIN:-30}
+      RSS_FEEDS: ${RSS_FEEDS:-knvd-notice|KNVD 보안공지|https://knvd.krcert.or.kr/rss/security/notice;knvd-vuln|KNVD 공개 취약점|https://knvd.krcert.or.kr/rss/security/info}
     volumes:
       - ./seed:/seed:ro
     depends_on:

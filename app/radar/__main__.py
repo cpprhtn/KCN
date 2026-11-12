@@ -7,6 +7,7 @@
   python -m radar seed DIR [--force] [--no-ko]
   python -m radar ko-set KEY "한국어 문장"     hand-written Korean (never overwritten by MT)
   python -m radar ko-reset KEY | --seed    give KEY (or every seed row) back to LibreTranslate
+  python -m radar rss                      poll the RSS feeds (RSS_FEEDS) once
   python -m radar status
 """
 import argparse
@@ -17,7 +18,7 @@ import sys
 
 def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stderr)
-    ap = argparse.ArgumentParser(prog="radar")
+    ap = argparse.ArgumentParser(prog="radar", description="KCM 서버")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("web")
     sub.add_parser("worker")
@@ -43,6 +44,7 @@ def main(argv=None):
     p = sub.add_parser("summarize", help="EXAONE으로 오늘의 요약 생성")
     p.add_argument("--force", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="모델에 보낼 입력만 출력")
+    sub.add_parser("rss", help="RSS 피드(RSS_FEEDS)를 지금 한 번 읽기")
     sub.add_parser("status")
     a = ap.parse_args(argv)
 
@@ -97,11 +99,15 @@ def main(argv=None):
             print(prompt or "(입력할 항목 없음)"); print(counts)
         else:
             print(json.dumps(summary.run(force=a.force), ensure_ascii=False))
+    elif a.cmd == "rss":
+        from . import rss
+        print(json.dumps(rss.run(), ensure_ascii=False))
     elif a.cmd == "status":
         with db.connect() as c:
             for r in c.execute("SELECT id, kind, status, started_at, finished_at, left(coalesce(error,''), 200) FROM runs ORDER BY id DESC LIMIT 10"):
                 print(*r, sep=" | ")
             print("translations:", dict(c.execute("SELECT status, count(*) FROM translations GROUP BY status").fetchall()))
+            print("rss:", c.execute("SELECT feed, count(*), max(published) FROM rss_items GROUP BY feed ORDER BY feed").fetchall())
             print("snapshots:", [r[0] for r in c.execute("SELECT name FROM snapshots ORDER BY name")])
 
 

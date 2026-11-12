@@ -7,8 +7,9 @@ import traceback
 from zoneinfo import ZoneInfo
 
 from croniter import croniter
+from psycopg.types.json import Jsonb
 
-from . import collect, config, db, seed, summary, translate
+from . import collect, config, db, rss, seed, summary, translate
 
 log = logging.getLogger("radar.worker")
 STOP = False
@@ -36,12 +37,57 @@ def collect_once(full=False):
         log.error("수집 실패: %s\n%s", e, traceback.format_exc())
         db.run_finish(rid, "failed", error=f"{e}\n{traceback.format_exc()[-2000:]}")
         return False
+    return True
+
+
+def data_age_hours():
+    with db.connect() as c:
+        with c.cursor() as cur:
+            meta = db.get_snapshot(cur, "meta", {}) or {}
+    gen = collect.pdate(meta.get("generatedAt"))
+    if not gen:
+        return None
+    return (dt.datetime.now(dt.timezone.utc) - gen).total_seconds() / 3600
+
+
+def summary_once(slot_time):
+    """One EXAONE briefing for a SUMMARY_CRON slot; collects first if the data is stale."""
+    if not summary.enabled():
+        return
+    slot = slot_time.strftime("%H:%M")
     try:
-        r = summary.run(force=True)        # fresh data -> fresh briefing
-        log.info("요약: %s", r)
+        age = data_age_hours()
+        if age is None or age > config.SUMMARY_FRESH_HOURS:
+            log.info("요약(%s) 전에 수집합니다 (데이터 %s시간 전)", slot, "?" if age is None else f"{age:.1f}")
+            collect_once()
+        rss_once()
+        log.info("요약(%s): %s", slot, summary.run(slot=slot))
     except Exception as e:
         log.error("요약 단계 오류: %s", e)
-    return True
+
+
+def backfill_summary_history():
+    """First start after the upgrade: keep the briefing that is already on screen as the first history row."""
+    with db.connect() as c:
+        with c.cursor() as cur:
+            cur.execute("SELECT count(*) FROM summary_history")
+            if cur.fetchone()[0]:
+                return
+            doc = db.get_snapshot(cur, "summary", None)
+            if doc and doc.get("status") == "ok" and doc.get("headline"):
+                at = collect.pdate(doc.get("generatedAt")) or dt.datetime.now(dt.timezone.utc)
+                cur.execute("INSERT INTO summary_history (generated_at, day, slot, doc) VALUES (%s, %s, %s, %s)",
+                            (at, doc.get("date") or at.date(), doc.get("slot") or "", Jsonb(doc)))
+        c.commit()
+
+
+def rss_once():
+    try:
+        r = rss.run()
+        return bool(r.get("queued"))
+    except Exception as e:
+        log.error("RSS 수집 오류: %s", e)
+        return False
 
 
 def startup_reason(seeded, tz):
@@ -75,6 +121,12 @@ def main():
     db.init_schema()
     if not croniter.is_valid(config.COLLECT_CRON):
         raise SystemExit(f"COLLECT_CRON 형식이 잘못됐습니다: {config.COLLECT_CRON!r}")
+    if not croniter.is_valid(config.SUMMARY_CRON):
+        raise SystemExit(f"SUMMARY_CRON 형식이 잘못됐습니다: {config.SUMMARY_CRON!r}")
+    try:
+        backfill_summary_history()
+    except Exception as e:
+        log.warning("요약 기록 옮기기 실패: %s", e)
 
     seeded = False
     if seed.is_empty() and seed.has_seed(config.SEED_DIR):
@@ -96,8 +148,21 @@ def main():
     log.info("다음 수집: %s (%s)", next_collect.isoformat(), config.COLLECT_CRON)
 
     next_translate = dt.datetime.now(tz)
+    next_rss = dt.datetime.now(tz) if config.RSS_ENABLED else None
+    next_summary = croniter(config.SUMMARY_CRON, dt.datetime.now(tz)).get_next(dt.datetime) if summary.enabled() else None
+    if next_summary:
+        log.info("다음 AI 요약: %s (%s)", next_summary.isoformat(), config.SUMMARY_CRON)
     while not STOP:
         now = dt.datetime.now(tz)
+        if next_summary is not None and now >= next_summary:
+            summary_once(next_summary)
+            next_summary = croniter(config.SUMMARY_CRON, dt.datetime.now(tz)).get_next(dt.datetime)
+            log.info("다음 AI 요약: %s", next_summary.isoformat())
+            now = dt.datetime.now(tz)
+        if next_rss is not None and now >= next_rss:
+            if rss_once():
+                next_translate = dt.datetime.now(tz)                    # translate new English entries right away
+            next_rss = dt.datetime.now(tz) + dt.timedelta(minutes=config.RSS_INTERVAL_MIN)
         if now >= next_collect:
             ok = collect_once()
             now = dt.datetime.now(tz)
@@ -119,6 +184,6 @@ def main():
                 next_translate = now + dt.timedelta(minutes=1)
             else:
                 next_translate = now + dt.timedelta(minutes=config.TRANSLATE_INTERVAL_MIN)
-        wake = min(next_collect, next_translate)
+        wake = min(x for x in (next_collect, next_translate, next_rss, next_summary) if x is not None)
         nap((wake - dt.datetime.now(tz)).total_seconds())
     log.info("worker 종료")

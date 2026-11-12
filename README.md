@@ -1,4 +1,4 @@
-# 크리티컬 취약점 레이더 — 서버판 (Docker + PostgreSQL + LibreTranslate)
+# KCM — 취약점 모니터링 서버 (React + FastAPI + PostgreSQL + LibreTranslate)
 
 아티팩트로 돌던 "크리티컬 취약점 레이더"를 자체 서버에 올리는 버전입니다.
 화면(HTML/JS/CSS)과 수집 로직은 원본과 같고, 바뀐 부분은 다음과 같습니다.
@@ -10,6 +10,9 @@
 | KISA 공지를 외부에서 가져와 넘겨줌 | worker가 boho.or.kr 목록을 **직접 수집** |
 | 예약 작업으로 하루 한 번 | worker 컨테이너 안 cron (`COLLECT_CRON`) |
 | CSV는 아티팩트 다운로드 기능 | 브라우저 일반 다운로드 |
+| 바닐라 JS 한 파일 | **React(Vite)** 화면, Docker 빌드 때 함께 빌드 |
+| — | **KNVD RSS**(보안공지·공개 취약점)를 30분마다 읽어 DB에 계속 쌓음 |
+| AI 요약 하루 1번, 최신 것만 | **하루 3번(7·12·19시)**, 모든 요약을 기록으로 보관 |
 
 ## 구성
 
@@ -54,9 +57,40 @@ docker compose logs -f worker
 2. **LibreTranslate**는 모델을 내려받는 동안 응답하지 않습니다. worker는 1분마다 확인하다가 준비되면 번역을 시작합니다.
 3. 번역 대기열은 처음에 수천 건(KEV 90일 → 최근 Critical → 제품 업데이트 → 패키지 권고 → 15~90일 Critical 순)입니다. CPU에 따라 첫 소진에 1~3시간 걸릴 수 있고, 그동안 페이지는 영문 원문/한국어 템플릿 문장으로 보입니다. 이후에는 하루 수십~수백 건만 새로 번역합니다.
 
+## 화면 (React)
+
+`app/frontend`에 있는 React(Vite) 앱입니다. `docker compose up --build` 때 Dockerfile 첫 단계에서 빌드되어 web 컨테이너의 `/app/static`으로 들어가므로 따로 할 일은 없습니다.
+
+```bash
+# 화면만 고치며 개발할 때 (서버는 이미 떠 있는 web을 씀)
+cd app/frontend
+npm install
+KCM_API=http://localhost:8080 npm run dev     # http://localhost:5173
+```
+
+## KNVD RSS (보안공지·공개 취약점)
+
+worker가 `RSS_INTERVAL_MIN`(기본 30분)마다 아래 피드를 읽습니다.
+
+- 보안공지: https://knvd.krcert.or.kr/rss/security/notice
+- 공개 취약점: https://knvd.krcert.or.kr/rss/security/info
+
+피드에는 최신 10건 정도만 나오기 때문에, 읽은 글은 모두 `rss_items` 테이블에 쌓고 지우지 않습니다. 화면의 **KNVD** 탭은 최근 180일을 바로 보여 주고, 더 오래된 글은 "이전 기록 더 불러오기"로 DB에서 가져옵니다(`/api/rss`).
+
+- 다른 사이트의 RSS/Atom도 `RSS_FEEDS`에 `이름|표시 이름|URL`을 `;`로 이어 붙이면 같이 쌓입니다.
+- 글이 영어면(본문 대부분이 영문) 제목과 본문 앞부분을 LibreTranslate 번역 대기열에 넣고, 번역이 끝나면 화면에 한국어로 보여 줍니다("기계 번역" 표시, 원문은 마우스를 올리거나 본문에서 확인). KEV·CVE 등 다른 출처의 영어 설명도 원래대로 번역됩니다.
+- KNVD 글의 CVE가 KEV에 있으면 "실제 악용" 배지가 붙고, "오늘" 화면의 주간 타임라인과 AI 요약 입력에도 들어갑니다.
+
+```bash
+docker compose exec worker python -m radar rss      # 지금 바로 한 번 읽기
+curl -s "http://localhost:8080/api/rss?feed=knvd-vuln&q=지니언스" | jq '.items[].title'
+```
+
 ## 오늘의 AI 요약 (EXAONE)
 
-`.env`에 `EXAONE_API_KEY`를 넣으면 매일 수집이 끝난 직후 "오늘" 화면에 요약 카드가 생깁니다.
+`.env`에 `EXAONE_API_KEY`를 넣으면 매일 **오전 7시, 낮 12시, 저녁 7시**(`SUMMARY_CRON`)에 요약을 쓰고, "오늘" 화면에 최신 요약 카드가 생깁니다. 요약 시각에 데이터가 `SUMMARY_FRESH_HOURS`(기본 3시간)보다 오래됐으면 먼저 증분 수집을 돌립니다.
+
+- 쓴 요약은 모두 `summary_history` 테이블에 남고, 화면의 **AI 요약 기록** 탭에서 날짜·시각별로 볼 수 있습니다(`/api/summaries`).
 
 - 기본 연결 대상은 LG AI연구원 EXAONE API 플랫폼의 K-EXAONE 2.5(`https://api.exaone.ai/v1`, 모델 `k-exaone_v2.5`, OpenAI 호환 `/chat/completions`)입니다. 키는 [docs.exaone.ai](https://docs.exaone.ai)에서 발급합니다.
 - K-EXAONE 2.5는 추론을 끌 수 없고 `EXAONE_REASONING_EFFORT`(`low`/`high`/`max`, 기본 `low`)로 양만 조절합니다. 추론 토큰도 `SUMMARY_MAX_TOKENS`(기본 8000)에 포함됩니다.
@@ -111,6 +145,9 @@ docker compose exec worker python -m radar ko-reset --seed
 | `LT_API_KEY` | 빈 값 | LibreTranslate에 API 키를 켰을 때만 |
 | `TRANSLATE_ARCHIVE` | `true` | 15~90일 지난 Critical까지 번역 (끄면 대기열이 약 절반) |
 | `TRANSLATE_PACKAGES` | `true` | GitHub 패키지 권고 요약 번역 |
+| `RSS_FEEDS` | KNVD 보안공지·공개 취약점 | `이름\|표시 이름\|URL` 을 `;`로 구분 |
+| `RSS_INTERVAL_MIN` | `30` | RSS 읽는 간격(분) |
+| `SUMMARY_CRON` | `0 7,12,19 * * *` | AI 요약 시각, `TZ` 기준 |
 
 ## 리버스 프록시 예시 (Caddy)
 
@@ -134,18 +171,21 @@ radar.example.com {
 | `change_days` | 실행 간 변화(PoC 공개, 실제 악용 전환 등) 14일 |
 | `translations` | 한국어 문장. `engine` = libretranslate / manual / seed, `status` = pending / done / failed |
 | `runs` | 수집 실행 기록 (최근 500건) |
-| `kv_state` | 예비 |
+| `kv_state` | RSS 피드별 마지막 수집 상태 |
+| `rss_items` | KNVD 등 RSS 글 전체 (지우지 않음) |
+| `summary_history` | EXAONE 요약 전체 (지우지 않음) |
+| `cve_history` / `kisa_history` | 지금까지 수집한 CVE·KISA 공지 전체 (`cve_store`·`kisa_notices`는 90일만 유지) |
 
 백업은 `docker compose exec db pg_dump -U radar radar > radar.sql` 하나면 됩니다. 사라져도 전체 재구축으로 다시 만들 수 있고, 잃는 건 `ko-set`으로 직접 고친 문장뿐입니다.
 
 ## 나가는 네트워크
 
-worker가 접속하는 곳: `raw.githubusercontent.com`, `github.com`(cvelistV5 릴리스 zip, advisory-database·malicious-packages git), `www.boho.or.kr`.
+worker가 접속하는 곳: `raw.githubusercontent.com`, `github.com`(cvelistV5 릴리스 zip, advisory-database·malicious-packages git), `www.boho.or.kr`, `knvd.krcert.or.kr`(RSS), EXAONE API.
 LibreTranslate는 첫 기동 때 모델 저장소(argos-net.com 등)에서 모델을 받습니다.
 브라우저는 Google Fonts를 불러옵니다(막혀 있으면 시스템 글꼴로 표시).
 
 ## 참고
 
 - 한국어 문장은 기계 번역이라 어색할 수 있습니다. 판단은 원문과 벤더 공지로 하세요.
-- "내가 쓰는 제품", "확인함" 표시는 원본처럼 각 브라우저의 localStorage에 저장됩니다(서버에 올라가지 않음).
+- "확인함" 표시는 각 브라우저의 localStorage에 저장됩니다(서버에 올라가지 않음). 이전 화면에서 체크한 것은 그대로 옮겨집니다.
 - 원본 페이지 하단의 제작자 표기(GitHub · cpprhtn)는 그대로 두었습니다. 공개 서비스로 올린다면 원작자에게 한 번 알리는 것을 권합니다.

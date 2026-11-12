@@ -62,7 +62,7 @@ MAJOR_RE = [(n, re.compile(rx, re.I)) for n, rx in MAJOR]
 RAW = "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/"
 KEV_URL = "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json"
 KCACHE_LEN = 13  # [pub, score, ver, src, av, pr, ui, automatable, techImpact, refs, fix, ransomware, exploitation]
-SNAPSHOT_NAMES = ("meta", "insights", "kev", "critical", "archive", "updates", "kisa", "changes", "packages", "ko", "summary")
+SNAPSHOT_NAMES = ("meta", "insights", "kev", "critical", "archive", "updates", "kisa", "changes", "packages", "ko", "summary", "rss")
 
 
 def major_of(vendor, assigner=""):
@@ -873,6 +873,14 @@ def _run(conn, full_flag, kisa_override, skip_kisa, skip_packages, WORK, now, to
         cur.execute("TRUNCATE kisa_notices")
         for k in kisa_items:
             cur.execute("INSERT INTO kisa_notices (ntt, date, item) VALUES (%s, %s, %s)", (k["ntt"], k["date"], Jsonb(k)))
+        # permanent history (never pruned)
+        cur.executemany("""INSERT INTO cve_history (cve_id, published, score, vendor, item) VALUES (%s, %s, %s, %s, %s)
+                           ON CONFLICT (cve_id) DO UPDATE SET published = EXCLUDED.published, score = EXCLUDED.score,
+                             vendor = EXCLUDED.vendor, item = EXCLUDED.item, last_seen = now()""",
+                        [(c["id"], c["published"], c["score"], c.get("vendor") or "", Jsonb(store_item(c))) for c in crit_all])
+        cur.executemany("""INSERT INTO kisa_history (ntt, date, item) VALUES (%s, %s, %s)
+                           ON CONFLICT (ntt) DO UPDATE SET date = EXCLUDED.date, item = EXCLUDED.item""",
+                        [(k["ntt"], k["date"], Jsonb(k)) for k in kisa_items])
         cur.execute("TRUNCATE change_days")
         for d in changes["days"]:
             cur.execute("INSERT INTO change_days (day, item) VALUES (%s, %s)", (d["date"], Jsonb(d)))

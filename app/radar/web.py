@@ -4,6 +4,7 @@ import gzip
 import logging
 import threading
 import time
+from datetime import datetime
 from email.utils import formatdate
 
 from fastapi import FastAPI, Request
@@ -11,7 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from psycopg_pool import ConnectionPool
 
-from . import collect, config, db
+from . import collect, config, db, rss, summary
 
 log = logging.getLogger("radar.web")
 ALLOWED = set(collect.SNAPSHOT_NAMES)
@@ -59,7 +60,7 @@ async def lifespan(_app):
     pool.close()
 
 
-app = FastAPI(title="Critical Vulnerability Radar", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app = FastAPI(title="KCM", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -107,13 +108,48 @@ def status():
         tr = dict(c.execute("SELECT status, count(*) FROM translations GROUP BY status").fetchall())
         eng = dict(c.execute("SELECT engine, count(*) FROM translations WHERE ko IS NOT NULL GROUP BY engine").fetchall())
         snaps = c.execute("SELECT name, length(body), updated_at FROM snapshots ORDER BY name").fetchall()
+        feeds = c.execute("SELECT feed, count(*), max(published), max(first_seen) FROM rss_items GROUP BY feed ORDER BY feed").fetchall()
     return {
         "translations": {"byStatus": tr, "translatedByEngine": eng},
+        "rss": [{"feed": f, "items": n, "latest": p.isoformat() if p else None, "lastNew": s.isoformat() if s else None} for f, n, p, s in feeds],
         "snapshots": [{"name": n, "bytes": b, "updatedAt": u.isoformat()} for n, b, u in snaps],
         "runs": [{"id": r[0], "kind": r[1], "status": r[2], "startedAt": r[3].isoformat() if r[3] else None,
                   "finishedAt": r[4].isoformat() if r[4] else None, "error": (r[5] or "")[:500] or None,
                   "summary": r[6]} for r in runs],
     }
+
+
+@app.get("/api/rss")
+def rss_history(feed: str | None = None, before: str | None = None, q: str | None = None, limit: int = 50):
+    """Archive of every RSS entry ever seen, newest first. before = ISO timestamp (the 'at' of the last row you have)."""
+    limit = max(1, min(limit, 200))
+    q = (q or "").strip()[:100] or None
+    b = None
+    if before:
+        try:
+            b = datetime.fromisoformat(before.replace("Z", "+00:00"))
+        except ValueError:
+            return JSONResponse({"error": "before는 ISO 시각이어야 합니다"}, status_code=400)
+    with pool.connection() as c:
+        with c.cursor() as cur:
+            items = rss.history(cur, feed=feed, before=b, q=q, limit=limit + 1)
+    return {"items": items[:limit], "more": len(items) > limit}
+
+
+@app.get("/api/summaries")
+def summaries(before: str | None = None, limit: int = 20):
+    """EXAONE briefing history, newest first. before = the 'at' of the last row you have."""
+    limit = max(1, min(limit, 100))
+    b = None
+    if before:
+        try:
+            b = datetime.fromisoformat(before.replace("Z", "+00:00"))
+        except ValueError:
+            return JSONResponse({"error": "before는 ISO 시각이어야 합니다"}, status_code=400)
+    with pool.connection() as c:
+        with c.cursor() as cur:
+            items = summary.history(cur, before=b, limit=limit + 1)
+    return {"items": items[:limit], "more": len(items) > limit, "schedule": config.SUMMARY_CRON}
 
 
 app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
