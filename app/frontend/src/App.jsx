@@ -71,7 +71,7 @@ function ThemeButton() {
   const [theme, setTheme] = useState(cur);
   const flip = () => {
     const t = cur() === "dark" ? "light" : "dark";
-    root.dataset.theme = t; LS.set("KCN.theme", t); setTheme(t);
+    root.dataset.theme = t; LS.set("kcn.theme", t); setTheme(t);
   };
   return (
     <button className="icon-btn" type="button" aria-label="밝은 화면/어두운 화면 전환" onClick={flip}>
