@@ -9,7 +9,7 @@ export const LS = {
   },
 };
 
-// Storage keys moved from "radar.*" to "kcm.*"; read the old ones once so nothing is lost.
+// Storage keys moved from "radar.*" to "KCN.*"; read the old ones once so nothing is lost.
 export function lsMigrated(key, oldKey, d) {
   const v = LS.get(key, undefined);
   if (v !== undefined) return v;

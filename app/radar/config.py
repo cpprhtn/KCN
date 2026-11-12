@@ -75,5 +75,5 @@ STATIC_DIR = os.environ.get("STATIC_DIR", os.path.join(os.path.dirname(os.path.d
 
 USER_AGENT = os.environ.get(
     "HTTP_USER_AGENT",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 kcm/1.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 KCN/1.0",
 )

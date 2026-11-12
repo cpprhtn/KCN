@@ -60,7 +60,7 @@ async def lifespan(_app):
     pool.close()
 
 
-app = FastAPI(title="KCM", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app = FastAPI(title="KCN", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.middleware("http")

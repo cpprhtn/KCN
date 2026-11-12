@@ -1,4 +1,4 @@
-# KCM — 취약점 모니터링 서버 (React + FastAPI + PostgreSQL + LibreTranslate)
+# KCN — 취약점 모니터링 서버 (React + FastAPI + PostgreSQL + LibreTranslate)
 
 아티팩트로 돌던 "크리티컬 취약점 레이더"를 자체 서버에 올리는 버전입니다.
 화면(HTML/JS/CSS)과 수집 로직은 원본과 같고, 바뀐 부분은 다음과 같습니다.
@@ -65,7 +65,7 @@ docker compose logs -f worker
 # 화면만 고치며 개발할 때 (서버는 이미 떠 있는 web을 씀)
 cd app/frontend
 npm install
-KCM_API=http://localhost:8080 npm run dev     # http://localhost:5173
+KCN_API=http://localhost:8080 npm run dev     # http://localhost:5173
 ```
 
 ## KNVD RSS (보안공지·공개 취약점)

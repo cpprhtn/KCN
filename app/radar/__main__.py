@@ -18,7 +18,7 @@ import sys
 
 def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stderr)
-    ap = argparse.ArgumentParser(prog="radar", description="KCM 서버")
+    ap = argparse.ArgumentParser(prog="radar", description="KCN 서버")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("web")
     sub.add_parser("worker")

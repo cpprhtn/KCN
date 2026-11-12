@@ -32,7 +32,7 @@ export function computeVerdict(data, done) {
 export function reportText(data, verdict) {
   if (!data.meta) return "";
   const L = [], gen = new Date(data.meta.generatedAt).toLocaleDateString("ko-KR");
-  L.push("[KCM] " + gen + " 기준", "", "■ 오늘 판정: " + verdict.head);
+  L.push("[KCN] " + gen + " 기준", "", "■ 오늘 판정: " + verdict.head);
   verdict.all.forEach(({ pillText, it, kind }) => {
     if (kind === "kisa") { L.push("- [" + pillText + "] KISA " + it.date + " " + it.title + " " + it.url); return; }
     if (kind === "update") {

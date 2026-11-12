@@ -14,7 +14,7 @@ const viewFromHash = () => { const v = location.hash.slice(1); return VIEWS.incl
 export function AppProvider({ children }) {
   const { data, loadMsg, summary } = useData();
   const [view, setViewState] = useState(viewFromHash);
-  const [done, setDone] = useState(() => lsMigrated("kcm.done", "radar.done", {}));
+  const [done, setDone] = useState(() => lsMigrated("KCN.done", "radar.done", {}));
 
   // Per-view filter state lives here so it survives switching tabs.
   const [list, setList] = useState({ ...initialListState, shown: PAGE });
@@ -41,7 +41,7 @@ export function AppProvider({ children }) {
     setDone((d) => {
       const n = { ...d };
       if (on) n[id] = Date.now(); else delete n[id];
-      LS.set("kcm.done", n);
+      LS.set("KCN.done", n);
       return n;
     });
   }, []);
